@@ -1,9 +1,0 @@
-Time,Event
-2025-05-17 22:27:28,FL Server Train Started
-2025-05-17 22:27:29,Round: 1 Test Started
-2025-05-17 22:27:30,Round: 1 Test Ended
-2025-05-17 22:27:42,Round: 2 Test Started
-2025-05-17 22:27:42,Round: 2 Test Ended
-2025-05-17 22:27:53,Round: 3 Test Started
-2025-05-17 22:27:53,Round: 3 Test Ended
-2025-05-17 22:27:56,FL Server Train Ended

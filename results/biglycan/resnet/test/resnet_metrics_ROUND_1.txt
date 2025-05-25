@@ -1,6 +1,0 @@
-Accuracy: 69.12%
-Precision: 0.5750
-Recall: 0.8519
-F1-score: 0.6866
-Loss: 0.6680
-Elapsed Time: 2.91 seconds

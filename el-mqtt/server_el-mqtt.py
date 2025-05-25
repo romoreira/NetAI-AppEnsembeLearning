@@ -2,9 +2,12 @@ import paho.mqtt.client as mqtt
 import json
 import numpy as np
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, confusion_matrix
 import argparse
 import time
+import os
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # Argumentos via CLI
 parser = argparse.ArgumentParser()
@@ -24,6 +27,13 @@ expected_clients = {f"client{i+1}" for i in range(int(args.expected_clients))}
 print(f"[CONFIG] Esperando mensagens de: {expected_clients}")
 
 received_probs = {}
+round_accuracies = []
+round_durations = []
+message_counts = []
+
+os.makedirs("results", exist_ok=True)
+
+start_times = {}
 
 def try_aggregate(round_id):
     print(f"[AGG] Verificando se todos os clientes enviaram para a rodada {round_id}...")
@@ -37,6 +47,8 @@ def try_aggregate(round_id):
         return
 
     print(f"[AGG] ✅ Todos os clientes da rodada {round_id} enviaram. Realizando stacking...")
+
+    t_start = time.time()
 
     probs_list = []
     for client in sorted(expected_clients):
@@ -55,6 +67,67 @@ def try_aggregate(round_id):
     y_pred = meta_model.predict(X_stack)
     acc = accuracy_score(y_stack, y_pred)
     print(f"🎯 Acurácia rodada {round_id}: {acc:.4f}")
+    round_accuracies.append(acc)
+    round_durations.append(time.time() - t_start)
+    message_counts.append({c: len(clients_received[c]) for c in expected_clients})
+
+    # Salva gráfico de acurácia
+    plt.figure()
+    plt.plot(round_accuracies, marker='o')
+    plt.title("Accuracy per Round")
+    plt.xlabel("Round")
+    plt.ylabel("Accuracy")
+    plt.grid(True)
+    plt.savefig("results/accuracy_per_round.png")
+
+    # Gráfico de mensagens recebidas por cliente
+    plt.figure()
+    for c in expected_clients:
+        plt.plot([m[c] for m in message_counts], label=c)
+    plt.title("Messages Received per Client")
+    plt.xlabel("Round")
+    plt.ylabel("# Messages")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig("results/messages_per_client.png")
+
+    # Gráfico de tempo por rodada
+    plt.figure()
+    plt.plot(round_durations, marker='x')
+    plt.title("Aggregation Time per Round")
+    plt.xlabel("Round")
+    plt.ylabel("Time (s)")
+    plt.grid(True)
+    plt.savefig("results/aggregation_time.png")
+
+    # Gráfico de distribuição dos rótulos
+    plt.figure()
+    unique, counts = np.unique(y_stack, return_counts=True)
+    plt.bar(unique, counts)
+    plt.title("Label Distribution (y_stack)")
+    plt.xlabel("Class")
+    plt.ylabel("Frequency")
+    plt.grid(True)
+    plt.savefig("results/label_distribution_round{}.png".format(round_id))
+
+    # Gráfico de médias das probabilidades por classe
+    plt.figure()
+    avg_probs = np.mean(X_stack, axis=0)
+    plt.bar(np.arange(len(avg_probs)), avg_probs)
+    plt.title("Average Stacked Probabilities per Class")
+    plt.xlabel("Class")
+    plt.ylabel("Probability")
+    plt.grid(True)
+    plt.savefig("results/avg_probs_round{}.png".format(round_id))
+
+    # Confusion matrix
+    cm = confusion_matrix(y_stack, y_pred)
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues")
+    plt.title(f"Confusion Matrix - Round {round_id}")
+    plt.xlabel("Predicted")
+    plt.ylabel("True")
+    plt.savefig(f"results/confusion_matrix_round{round_id}.png")
 
     del received_probs[round_id]
     print(f"[AGG] Dados da rodada {round_id} limpos.")

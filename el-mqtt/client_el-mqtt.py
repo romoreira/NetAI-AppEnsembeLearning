@@ -9,6 +9,8 @@ import paho.mqtt.client as mqtt
 import json
 from tqdm import tqdm
 import time
+import matplotlib.pyplot as plt
+import os
 
 # Argumentos via CLI
 parser = argparse.ArgumentParser()
@@ -89,7 +91,13 @@ else:
 criterion = nn.CrossEntropyLoss()
 print("[TRAIN] Iniciando treinamento...")
 model.train()
+train_losses = []
+train_accuracies = []
+
 for epoch in range(args.epochs):
+    running_loss = 0.0
+    correct = 0
+    total = 0
     for inputs, targets in tqdm(train_loader, desc=f"{args.client_id} - Epoch {epoch+1}"):
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
@@ -97,7 +105,34 @@ for epoch in range(args.epochs):
         loss = criterion(outputs, targets)
         loss.backward()
         optimizer.step()
+
+        running_loss += loss.item()
+        _, predicted = torch.max(outputs, 1)
+        correct += (predicted == targets).sum().item()
+        total += targets.size(0)
+
+    avg_loss = running_loss / len(train_loader)
+    acc = correct / total
+    train_losses.append(avg_loss)
+    train_accuracies.append(acc)
+    print(f"[TRAIN] Epoch {epoch+1}, Loss: {avg_loss:.4f}, Accuracy: {acc:.4f}")
+
 print("[TRAIN] Treinamento concluído.")
+
+# Salvar gráficos
+os.makedirs("results", exist_ok=True)
+
+plt.figure()
+plt.plot(train_losses, marker='o', label="Loss")
+plt.plot(train_accuracies, marker='x', label="Accuracy")
+plt.title(f"Training Metrics - Client {args.client_id} ({args.model_name})")
+plt.xlabel("Epoch")
+plt.ylabel("Value")
+plt.legend()
+plt.grid(True)
+fig_path = f"results/metrics_client{args.client_id}_{args.model_name}.png"
+plt.savefig(fig_path)
+print(f"[LOG] Gráfico salvo em {fig_path}")
 
 # Avaliação
 print("[EVAL] Extraindo probabilidades do conjunto de validação...")
