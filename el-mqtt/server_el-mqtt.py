@@ -9,6 +9,7 @@ import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.model_selection import train_test_split
+from optimization import run_genetic_algorithm, evaluate_weighted_probs
 
 # Argumentos via CLI
 parser = argparse.ArgumentParser()
@@ -35,6 +36,41 @@ message_counts = []
 os.makedirs("results", exist_ok=True)
 
 start_times = {}
+
+
+def aggregate_with_GA(round_id):
+    print(f"[GA] Verificando se todos os clientes enviaram para a rodada {round_id}...")
+    clients_received = received_probs.get(round_id, {})
+    for c in expected_clients:
+        print(f"[GA] - {c}: {len(clients_received.get(c, []))} mensagens")
+
+    ready = all(len(clients_received.get(c, [])) >= 1 for c in expected_clients)
+    if not ready:
+        print(f"[GA] ⏳ Ainda aguardando mensagens...")
+        return
+
+    print(f"[GA] ✅ Todos os clientes da rodada {round_id} enviaram. Realizando stacking...")
+
+    t_start = time.time()
+
+    probs_list = []
+    for client in sorted(expected_clients):
+        client_data = clients_received[client][0]
+        probs = np.array(client_data["probs"])
+        probs_list.append(probs)
+
+    X_stack = np.concatenate(probs_list, axis=1)
+    y_stack = np.array(clients_received[sorted(expected_clients)[0]][0]["labels"])
+
+    print(f"[GA] Forma da matriz X empilhada: {X_stack.shape}")
+    print(f"[GA] Rótulos únicos: {set(y_stack)}")
+
+    best_weights = run_genetic_algorithm(probs_list, clients_received[sorted(expected_clients)[0]][0]["labels"])
+    acc = evaluate_weighted_probs(probs_list, best_weights, clients_received[sorted(expected_clients)[0]][0]["labels"])
+    duration  = time.time() - t_start
+    print(f"[GA - RESULT] - Time Enlapsed: {duration:.3f} Acurácia final com pesos genéticos: {acc:.4f}")
+
+
 
 def try_aggregate(round_id):
     print(f"[AGG] Verificando se todos os clientes enviaram para a rodada {round_id}...")
@@ -189,7 +225,9 @@ def on_message(client, userdata, msg):
     received_probs[round_id][client_id].append({"probs": probs, "labels": labels})
     print(f"[MSG] Total de mensagens de {client_id} na rodada {round_id}: {len(received_probs[round_id][client_id])}")
 
-    try_aggregate(round_id)
+
+    aggregate_with_GA(round_id)
+    #try_aggregate(round_id)
 
 def on_connect(client, userdata, flags, rc):
     print(f"🔗 Conectado ao broker (rc={rc})")
