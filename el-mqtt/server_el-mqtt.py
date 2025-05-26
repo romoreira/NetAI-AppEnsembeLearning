@@ -8,6 +8,7 @@ import time
 import os
 import matplotlib.pyplot as plt
 import seaborn as sns
+from sklearn.model_selection import train_test_split
 
 # Argumentos via CLI
 parser = argparse.ArgumentParser()
@@ -62,16 +63,22 @@ def try_aggregate(round_id):
     print(f"[AGG] Forma da matriz X empilhada: {X_stack.shape}")
     print(f"[AGG] Rótulos únicos: {set(y_stack)}")
 
+    # Split dos dados para avaliação justa
+    X_train, X_test, y_train, y_test = train_test_split(
+        X_stack, y_stack, test_size=0.2, random_state=42, stratify=y_stack
+    )
+
     meta_model = LogisticRegression(max_iter=1000)
-    meta_model.fit(X_stack, y_stack)
-    y_pred = meta_model.predict(X_stack)
-    acc = accuracy_score(y_stack, y_pred)
-    print(f"🎯 Acurácia rodada {round_id}: {acc:.4f}")
+    meta_model.fit(X_train, y_train)
+    y_pred = meta_model.predict(X_test)
+    acc = accuracy_score(y_test, y_pred)
+    print(f"🎯 Acurácia rodada {round_id} (teste): {acc:.4f}")
+
     round_accuracies.append(acc)
     round_durations.append(time.time() - t_start)
     message_counts.append({c: len(clients_received[c]) for c in expected_clients})
 
-    # Salva gráfico de acurácia
+    # Gráfico de acurácia por rodada
     plt.figure()
     plt.plot(round_accuracies, marker='o')
     plt.title("Accuracy per Round")
@@ -108,7 +115,7 @@ def try_aggregate(round_id):
     plt.xlabel("Class")
     plt.ylabel("Frequency")
     plt.grid(True)
-    plt.savefig("results/label_distribution_round{}.png".format(round_id))
+    plt.savefig(f"results/label_distribution_round{round_id}.png")
 
     # Gráfico de médias das probabilidades por classe
     plt.figure()
@@ -118,10 +125,10 @@ def try_aggregate(round_id):
     plt.xlabel("Class")
     plt.ylabel("Probability")
     plt.grid(True)
-    plt.savefig("results/avg_probs_round{}.png".format(round_id))
+    plt.savefig(f"results/avg_probs_round{round_id}.png")
 
-    # Confusion matrix
-    cm = confusion_matrix(y_stack, y_pred)
+    # Confusion matrix com dados de teste
+    cm = confusion_matrix(y_test, y_pred)
     plt.figure(figsize=(8, 6))
     sns.heatmap(cm, annot=True, fmt="d", cmap="Blues")
     plt.title(f"Confusion Matrix - Round {round_id}")
