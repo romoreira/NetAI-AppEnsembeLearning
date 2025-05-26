@@ -68,7 +68,7 @@ def aggregate_with_GA(round_id):
     best_weights = run_genetic_algorithm(probs_list, clients_received[sorted(expected_clients)[0]][0]["labels"])
     acc = evaluate_weighted_probs(probs_list, best_weights, clients_received[sorted(expected_clients)[0]][0]["labels"])
     duration  = time.time() - t_start
-    print(f"[GA - RESULT] - Time Enlapsed: {duration:.3f} Acurácia final com pesos genéticos: {acc:.4f}")
+    print(f"[GA - RESULT] - Time Enlapsed: {duration:.3f} - Accuracy with GA: {acc:.4f}")
 
 
 

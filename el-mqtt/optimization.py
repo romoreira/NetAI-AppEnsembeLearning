@@ -20,6 +20,8 @@ def run_genetic_algorithm(probs_list, true_labels, population_size=20, generatio
     num_clients = len(probs_list)
     num_samples = len(true_labels)
 
+    print("Running GA...")
+
     # Geração inicial aleatória (pesos somando 1)
     def random_weights():
         w = np.random.rand(num_clients)

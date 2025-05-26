@@ -6,11 +6,12 @@ pkill -f "server_el-mqtt.py"
 sleep 4
 
 
-python3 client_el-mqtt.py --broker 10.109.90.35 --port 1883 --topic probs --model_name alexnet --optimizer sgd --lr 0.001   --epochs 1   --batch_size 64 --client_id 1 &
-python3 client_el-mqtt.py --broker 10.109.90.35 --port 1883 --topic probs --model_name resnet18 --optimizer sgd --lr 0.001   --epochs 1   --batch_size 64 --client_id 2 & 
+python3 client_el-mqtt.py --broker 10.97.224.47 --port 1883 --topic probs --model_name alexnet --optimizer sgd --lr 0.001   --epochs 20   --batch_size 64 --client_id 1 &
+python3 client_el-mqtt.py --broker 10.97.224.47 --port 1883 --topic probs --model_name resnet18 --optimizer sgd --lr 0.001   --epochs 20   --batch_size 64 --client_id 2 & 
+python3 client_el-mqtt.py --broker 10.97.224.47 --port 1883 --topic probs --model_name mobilenet_v2 --optimizer sgd --lr 0.001   --epochs 20   --batch_size 64 --client_id 3 & 
 
 
 
-python3 server_el-mqtt.py --broker 10.109.90.35 --port 1883 --topic probs --expected_clients 2 &
+python3 server_el-mqtt.py --broker 10.97.224.47 --port 1883 --topic probs --expected_clients 3 &
 sleep 2
 wait
