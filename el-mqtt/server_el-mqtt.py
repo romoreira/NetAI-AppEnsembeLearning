@@ -71,6 +71,7 @@ def try_aggregate(round_id):
     meta_model = LogisticRegression(max_iter=1000)
     meta_model.fit(X_train, y_train)
     y_pred = meta_model.predict(X_test)
+    y_proba = meta_model.predict_proba(X_test)
     acc = accuracy_score(y_test, y_pred)
     print(f"🎯 Acurácia rodada {round_id} (teste): {acc:.4f}")
 
@@ -135,6 +136,26 @@ def try_aggregate(round_id):
     plt.xlabel("Predicted")
     plt.ylabel("True")
     plt.savefig(f"results/confusion_matrix_round{round_id}.png")
+
+    # 🔹 Gráfico 1: Distribuição das confianças nas predições (probabilidade máxima)
+    plt.figure()
+    confidences = np.max(y_proba, axis=1)
+    plt.hist(confidences, bins=20, color='skyblue', edgecolor='black')
+    plt.title("Prediction Confidence Distribution")
+    plt.xlabel("Max predicted probability")
+    plt.ylabel("Number of samples")
+    plt.grid(True)
+    plt.savefig(f"results/confidence_distribution_round{round_id}.png")
+
+    # 🔹 Gráfico 2: Probabilidade da classe verdadeira
+    true_class_probs = y_proba[np.arange(len(y_test)), y_test]
+    plt.figure()
+    plt.hist(true_class_probs, bins=20, color='orange', edgecolor='black')
+    plt.title("True Class Probability Distribution")
+    plt.xlabel("Predicted probability for true class")
+    plt.ylabel("Number of samples")
+    plt.grid(True)
+    plt.savefig(f"results/true_class_prob_distribution_round{round_id}.png")
 
     del received_probs[round_id]
     print(f"[AGG] Dados da rodada {round_id} limpos.")
