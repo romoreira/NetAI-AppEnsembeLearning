@@ -26,6 +26,14 @@ parser.add_argument('--client_id', type=int, required=True)
 parser.add_argument('--ensemble_method', type=str, required=True)
 args = parser.parse_args()
 
+if args.ensemble_method == "baseline":
+    # open baseline.py as a subprocess
+    # consider this exemple of parameters and edecution
+    # python3 baseline.py --model_name alexnet --optimizer sgd --lr 0.001 --epochs 20 --batch_size 64
+    print("[INFO] Executando baseline.py...")
+    os.system(f"python3 baseline.py --model_name {args.model_name} --optimizer {args.optimizer} --lr {args.lr} --epochs {args.epochs} --batch_size {args.batch_size}")
+    
+
 # MQTT config
 MQTT_BROKER = args.broker
 MQTT_PORT = args.port
@@ -122,6 +130,8 @@ print("[TRAIN] Treinamento concluído.")
 
 # Salvar gráficos
 os.makedirs("results", exist_ok=True)
+if args.ensemble_method == "baseline":   # Se for GA, criar pasta específica
+    os.makedirs("results/baseline", exist_ok=True)
 if args.ensemble_method == "ga":   # Se for GA, criar pasta específica
     os.makedirs("results/ga", exist_ok=True)
 elif args.ensemble_method == "stacking":  # Se for Stacking, criar pasta específica
