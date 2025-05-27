@@ -471,17 +471,17 @@ def aggregate_with_PSO_and_Stacking(round_id):
     print(f"[AGG+Hybrid] Dados da rodada {round_id} limpos.")
 
 def aggregate_with_stacking(round_id):
-    print(f"[AGG] Verificando se todos os clientes enviaram para a rodada {round_id}...")
+    print(f"[Stacking] Verificando se todos os clientes enviaram para a rodada {round_id}...")
     clients_received = received_probs.get(round_id, {})
     for c in expected_clients:
-        print(f"[AGG] - {c}: {len(clients_received.get(c, []))} mensagens")
+        print(f"[Stacking] - {c}: {len(clients_received.get(c, []))} mensagens")
 
     ready = all(len(clients_received.get(c, [])) >= 1 for c in expected_clients)
     if not ready:
-        print(f"[AGG] ⏳ Ainda aguardando mensagens...")
+        print(f"[Stacking] ⏳ Ainda aguardando mensagens...")
         return
 
-    print(f"[AGG] ✅ Todos os clientes da rodada {round_id} enviaram. Realizando stacking...")
+    print(f"[Stacking] ✅ Todos os clientes da rodada {round_id} enviaram. Realizando stacking...")
 
     t_start = time.time()
 
@@ -494,8 +494,8 @@ def aggregate_with_stacking(round_id):
     X_stack = np.concatenate(probs_list, axis=1)
     y_stack = np.array(clients_received[sorted(expected_clients)[0]][0]["labels"])
 
-    print(f"[AGG] Forma da matriz X empilhada: {X_stack.shape}")
-    print(f"[AGG] Rótulos únicos: {set(y_stack)}")
+    print(f"[Stacking] Forma da matriz X empilhada: {X_stack.shape}")
+    print(f"[Stacking] Rótulos únicos: {set(y_stack)}")
 
     # Split dos dados para avaliação justa
     X_train, X_test, y_train, y_test = train_test_split(
@@ -507,7 +507,7 @@ def aggregate_with_stacking(round_id):
     y_pred = meta_model.predict(X_test)
     y_proba = meta_model.predict_proba(X_test)
     acc = accuracy_score(y_test, y_pred)
-    print(f"🎯 Acurácia rodada GA + Stacking {round_id} (teste): {acc:.4f}")
+    print(f"🎯 Acurácia rodada Stacking {round_id} (teste): {acc:.4f}")
 
     round_accuracies.append(acc)
     round_durations.append(time.time() - t_start)
