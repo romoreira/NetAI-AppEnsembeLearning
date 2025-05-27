@@ -17,6 +17,7 @@ parser.add_argument('--broker', type=str, default='localhost', help='Broker IP o
 parser.add_argument('--port', type=int, default=1883, help='Broker port')
 parser.add_argument('--topic', type=str, default='probs', help='MQTT topic to subscribe')
 parser.add_argument('--expected_clients', type=str, required=True, help='Lista de clientes esperados para cada rodada')
+parser.add_argument('--ensemble_method', type=str, required=True)
 args = parser.parse_args()
 
 # Configuração
@@ -33,9 +34,20 @@ round_accuracies = []
 round_durations = []
 message_counts = []
 
+# Salvar gráficos
 os.makedirs("results", exist_ok=True)
+if args.ensemble_method == "ga":   # Se for GA, criar pasta específica
+    os.makedirs("results/ga", exist_ok=True)
+elif args.ensemble_method == "stacking":  # Se for Stacking, criar pasta específica
+    os.makedirs("results/stacking", exist_ok=True)
+elif args.ensemble_method == "voting":  # Se for Voting, criar pasta específica
+    os.makedirs("results/voting", exist_ok=True)
+else:
+    os.makedirs("results/baseline", exist_ok=True)
 
 start_times = {}
+
+
 
 
 def aggregate_with_GA(round_id):
@@ -122,7 +134,7 @@ def try_aggregate(round_id):
     plt.xlabel("Round")
     plt.ylabel("Accuracy")
     plt.grid(True)
-    plt.savefig("results/accuracy_per_round.png")
+    plt.savefig("results/{args.ensemble_method}/accuracy_per_round.png")
 
     # Gráfico de mensagens recebidas por cliente
     plt.figure()
@@ -133,7 +145,7 @@ def try_aggregate(round_id):
     plt.ylabel("# Messages")
     plt.legend()
     plt.grid(True)
-    plt.savefig("results/messages_per_client.png")
+    plt.savefig("results/{args.ensemble_method}/messages_per_client.png")
 
     # Gráfico de tempo por rodada
     plt.figure()
@@ -142,7 +154,7 @@ def try_aggregate(round_id):
     plt.xlabel("Round")
     plt.ylabel("Time (s)")
     plt.grid(True)
-    plt.savefig("results/aggregation_time.png")
+    plt.savefig("results/{args.ensemble_method}/aggregation_time.png")
 
     # Gráfico de distribuição dos rótulos
     plt.figure()
@@ -152,7 +164,7 @@ def try_aggregate(round_id):
     plt.xlabel("Class")
     plt.ylabel("Frequency")
     plt.grid(True)
-    plt.savefig(f"results/label_distribution_round{round_id}.png")
+    plt.savefig(f"results/{args.ensemble_method}/label_distribution_round{round_id}.png")
 
     # Gráfico de médias das probabilidades por classe
     plt.figure()
@@ -162,7 +174,7 @@ def try_aggregate(round_id):
     plt.xlabel("Class")
     plt.ylabel("Probability")
     plt.grid(True)
-    plt.savefig(f"results/avg_probs_round{round_id}.png")
+    plt.savefig(f"results/{args.ensemble_method}/avg_probs_round{round_id}.png")
 
     # Confusion matrix com dados de teste
     cm = confusion_matrix(y_test, y_pred)
@@ -171,7 +183,7 @@ def try_aggregate(round_id):
     plt.title(f"Confusion Matrix - Round {round_id}")
     plt.xlabel("Predicted")
     plt.ylabel("True")
-    plt.savefig(f"results/confusion_matrix_round{round_id}.png")
+    plt.savefig(f"results/{args.ensemble_method}/confusion_matrix_round{round_id}.png")
 
     # 🔹 Gráfico 1: Distribuição das confianças nas predições (probabilidade máxima)
     plt.figure()
@@ -181,7 +193,7 @@ def try_aggregate(round_id):
     plt.xlabel("Max predicted probability")
     plt.ylabel("Number of samples")
     plt.grid(True)
-    plt.savefig(f"results/confidence_distribution_round{round_id}.png")
+    plt.savefig(f"results/{args.ensemble_method}/confidence_distribution_round{round_id}.png")
 
     # 🔹 Gráfico 2: Probabilidade da classe verdadeira
     true_class_probs = y_proba[np.arange(len(y_test)), y_test]
@@ -191,7 +203,7 @@ def try_aggregate(round_id):
     plt.xlabel("Predicted probability for true class")
     plt.ylabel("Number of samples")
     plt.grid(True)
-    plt.savefig(f"results/true_class_prob_distribution_round{round_id}.png")
+    plt.savefig(f"results/{args.ensemble_method}/true_class_prob_distribution_round{round_id}.png")
 
     del received_probs[round_id]
     print(f"[AGG] Dados da rodada {round_id} limpos.")

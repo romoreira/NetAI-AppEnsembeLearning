@@ -1,42 +1,31 @@
-# client.py
+# client_el-mqtt.py (baseline - sem MQTT)
 import argparse
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import datasets, transforms, models
 from torch.utils.data import DataLoader
-import paho.mqtt.client as mqtt
-import json
 from tqdm import tqdm
-import time
 import matplotlib.pyplot as plt
+import numpy as np
 import os
+from sklearn.metrics import confusion_matrix, classification_report, ConfusionMatrixDisplay
+
+# Salvar gráficos
+os.makedirs("results", exist_ok=True)
+os.makedirs("results/baseline", exist_ok=True)
 
 # Argumentos via CLI
 parser = argparse.ArgumentParser()
-parser.add_argument('--broker', type=str, default='localhost')
-parser.add_argument('--port', type=int, default=1883)
-parser.add_argument('--topic', type=str, default='#')
 parser.add_argument('--model_name', type=str, required=True)
 parser.add_argument('--optimizer', type=str, default='adam')
 parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--epochs', type=int, default=3)
 parser.add_argument('--batch_size', type=int, default=32)
-parser.add_argument('--client_id', type=int, required=True)
-parser.add_argument('--ensemble_method', type=str, required=True)
 args = parser.parse_args()
-
-# MQTT config
-MQTT_BROKER = args.broker
-MQTT_PORT = args.port
-client_str = f"client{args.client_id}"
-MQTT_TOPIC = f"{client_str}/probs"
-
-print(f"[CONFIG] Broker: {MQTT_BROKER}, Porta: {MQTT_PORT}, Tópico: {MQTT_TOPIC}")
 
 # Device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"[INIT] Usando dispositivo: {device}")
 num_classes = 10
 
 # Transforms
@@ -47,7 +36,6 @@ transform = transforms.Compose([
 ])
 
 # Datasets
-print("[DATA] Carregando dataset CIFAR10...")
 train_dataset = datasets.CIFAR10(root="./data", train=True, download=True, transform=transform)
 val_dataset = datasets.CIFAR10(root="./data", train=False, download=True, transform=transform)
 train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
@@ -56,7 +44,6 @@ val_loader = DataLoader(val_dataset, batch_size=args.batch_size)
 # Modelo
 def get_model(name, num_classes):
     name = name.lower()
-    print(f"[MODEL] Carregando modelo: {name}")
     if name == "resnet18":
         model = models.resnet18(weights=None)
         model.fc = nn.Linear(model.fc.in_features, num_classes)
@@ -80,7 +67,6 @@ def get_model(name, num_classes):
 model = get_model(args.model_name, num_classes).to(device)
 
 # Otimizador
-print(f"[TRAIN] Inicializando otimizador: {args.optimizer}")
 if args.optimizer.lower() == "adam":
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 elif args.optimizer.lower() == "sgd":
@@ -90,7 +76,6 @@ else:
 
 # Treinamento
 criterion = nn.CrossEntropyLoss()
-print("[TRAIN] Iniciando treinamento...")
 model.train()
 train_losses = []
 train_accuracies = []
@@ -99,7 +84,7 @@ for epoch in range(args.epochs):
     running_loss = 0.0
     correct = 0
     total = 0
-    for inputs, targets in tqdm(train_loader, desc=f"{args.client_id} - Epoch {epoch+1}"):
+    for inputs, targets in tqdm(train_loader, desc=f"Epoch {epoch+1}"):
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
         outputs = model(inputs)
@@ -116,65 +101,56 @@ for epoch in range(args.epochs):
     acc = correct / total
     train_losses.append(avg_loss)
     train_accuracies.append(acc)
-    print(f"[TRAIN] Epoch {epoch+1}, Loss: {avg_loss:.4f}, Accuracy: {acc:.4f}")
+    print(f"Epoch {epoch+1}, Loss: {avg_loss:.4f}, Accuracy: {acc:.4f}")
 
-print("[TRAIN] Treinamento concluído.")
+# Avaliação
+model.eval()
+correct_val = 0
+total_val = 0
+all_preds = []
+all_targets = []
 
-# Salvar gráficos
-os.makedirs("results", exist_ok=True)
-if args.ensemble_method == "ga":   # Se for GA, criar pasta específica
-    os.makedirs("results/ga", exist_ok=True)
-elif args.ensemble_method == "stacking":  # Se for Stacking, criar pasta específica
-    os.makedirs("results/stacking", exist_ok=True)
-elif args.ensemble_method == "voting":  # Se for Voting, criar pasta específica
-    os.makedirs("results/voting", exist_ok=True)
-else:
-    os.makedirs("results/baseline", exist_ok=True)
+with torch.no_grad():
+    for inputs, targets in tqdm(val_loader, desc="Validating"):
+        inputs, targets = inputs.to(device), targets.to(device)
+        outputs = model(inputs)
+        _, predicted = torch.max(outputs, 1)
+        all_preds.extend(predicted.cpu().numpy())
+        all_targets.extend(targets.cpu().numpy())
+        correct_val += (predicted == targets).sum().item()
+        total_val += targets.size(0)
 
+val_acc = correct_val / total_val
+print(f"Validation Accuracy: {val_acc:.4f}")
+
+# Classification Report
+print("\nClassification Report:")
+print(classification_report(all_targets, all_preds))
+# Salvar classification report em arquivo txt
+report_path = f"results/baseline/classification_report_{args.model_name}.txt"
+with open(report_path, 'w') as f:
+    f.write(classification_report(all_targets, all_preds))
+print(f"Classification report salvo em {report_path}")
+
+
+# Confusion Matrix
+cm = confusion_matrix(all_targets, all_preds)
+plt.figure(figsize=(10, 8))
+ConfusionMatrixDisplay(cm, display_labels=val_dataset.classes).plot(cmap=plt.cm.Blues)
+plt.title(f"Confusion Matrix - {args.model_name}")
+plt.savefig(f"results/baseline/confusion_matrix_{args.model_name}.png")
+plt.close()
 
 
 
 plt.figure()
 plt.plot(train_losses, marker='o', label="Loss")
 plt.plot(train_accuracies, marker='x', label="Accuracy")
-plt.title(f"Training Metrics - Client {args.client_id} ({args.model_name})")
+plt.title(f"Training Metrics - {args.model_name}")
 plt.xlabel("Epoch")
 plt.ylabel("Value")
 plt.legend()
 plt.grid(True)
-fig_path = f"results/{args.ensemble_method}/metrics_client{args.client_id}_{args.model_name}.png"
+fig_path = f"results/baseline/metrics_{args.model_name}.png"
 plt.savefig(fig_path)
-print(f"[LOG] Gráfico salvo em {fig_path}")
-
-# Avaliação
-print("[EVAL] Extraindo probabilidades do conjunto de validação...")
-model.eval()
-all_probs = []
-all_labels = []
-with torch.no_grad():
-    for inputs, targets in tqdm(val_loader, desc="Extracting probs"):
-        inputs = inputs.to(device)
-        outputs = model(inputs)
-        probs = F.softmax(outputs, dim=1).cpu()
-        all_probs.append(probs)
-        all_labels.append(targets)
-
-probs = torch.cat(all_probs).tolist()
-labels = torch.cat(all_labels).tolist()
-print(f"[EVAL] Total de amostras avaliadas: {len(probs)}")
-
-# Publicação via MQTT
-print(f"🚀 [MQTT] Conectando ao broker {MQTT_BROKER}:{MQTT_PORT}")
-client = mqtt.Client()
-client.connect(MQTT_BROKER, MQTT_PORT, 60)
-
-payload = json.dumps({"probs": probs, "labels": labels})
-print(f"📡 Enviando para tópico {MQTT_TOPIC} com round_id='default'")
-client.loop_start()
-info = client.publish(MQTT_TOPIC, payload, qos=2)
-print(f"📤 [DEBUG] Mensagem publicada. ID: {info.mid}")
-info.wait_for_publish()
-client.loop_stop()
-print(f"📤 [DEBUG] Publicação finalizada. Status: {info.rc}")
-client.disconnect()
-print("🔌 [DEBUG] Cliente desconectado do broker.")
+print(f"Gráfico salvo em {fig_path}")
