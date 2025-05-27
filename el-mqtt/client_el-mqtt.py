@@ -131,9 +131,9 @@ elif args.ensemble_method == "voting":  # Se for Voting, criar pasta específica
 elif args.ensemble_method == "ga_stacking":  # Se for Voting, criar pasta específica
     os.makedirs("results/ga_stacking", exist_ok=True)
 elif args.ensemble_method == "pso":  # Se for Voting, criar pasta específica
-    os.makedirs("results/pso_stacking", exist_ok=True)
-elif args.ensemble_method == "pso_stacking":  # Se for Voting, criar pasta específica
     os.makedirs("results/pso", exist_ok=True)
+elif args.ensemble_method == "pso_stacking":  # Se for Voting, criar pasta específica
+    os.makedirs("results/pso_stacking", exist_ok=True)
 else:
     os.makedirs("results/baseline", exist_ok=True)
 
