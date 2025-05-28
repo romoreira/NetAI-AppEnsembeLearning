@@ -61,12 +61,17 @@ val_dataset = datasets.CIFAR10(root="./data", train=False, download=True, transf
 train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=args.batch_size)
 
-# Modelo
 def get_model(name, num_classes):
     name = name.lower()
     print(f"[MODEL] Carregando modelo: {name}")
     if name == "resnet18":
         model = models.resnet18(weights=None)
+        model.fc = nn.Linear(model.fc.in_features, num_classes)
+    elif name == "resnet34":
+        model = models.resnet34(weights=None)
+        model.fc = nn.Linear(model.fc.in_features, num_classes)
+    elif name == "resnet50":
+        model = models.resnet50(weights=None)
         model.fc = nn.Linear(model.fc.in_features, num_classes)
     elif name == "alexnet":
         model = models.alexnet(weights=None)
@@ -74,13 +79,28 @@ def get_model(name, num_classes):
     elif name == "vgg16":
         model = models.vgg16(weights=None)
         model.classifier[6] = nn.Linear(model.classifier[6].in_features, num_classes)
+    elif name == "vgg19":
+        model = models.vgg19(weights=None)
+        model.classifier[6] = nn.Linear(model.classifier[6].in_features, num_classes)
     elif name == "mobilenet_v2":
         model = models.mobilenet_v2(weights=None)
         model.classifier[1] = nn.Linear(model.classifier[1].in_features, num_classes)
+    elif name == "mobilenet_v3_small":
+        model = models.mobilenet_v3_small(weights=None)
+        model.classifier[3] = nn.Linear(model.classifier[3].in_features, num_classes)
+    elif name == "mobilenet_v3_large":
+        model = models.mobilenet_v3_large(weights=None)
+        model.classifier[3] = nn.Linear(model.classifier[3].in_features, num_classes)
     elif name == "squeezenet":
         model = models.squeezenet1_0(weights=None)
         model.classifier[1] = nn.Conv2d(512, num_classes, kernel_size=(1, 1), stride=(1, 1))
         model.num_classes = num_classes
+    elif name == "densenet121":
+        model = models.densenet121(weights=None)
+        model.classifier = nn.Linear(model.classifier.in_features, num_classes)
+    elif name == "efficientnet_b0":
+        model = models.efficientnet_b0(weights=None)
+        model.classifier[1] = nn.Linear(model.classifier[1].in_features, num_classes)
     else:
         raise ValueError(f"Modelo '{name}' não suportado.")
     return model
