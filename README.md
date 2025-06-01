@@ -19,10 +19,12 @@ You can recreate the exact Python environment using:
 ```bash
 conda create -n torch python=3.12
 conda activate torch
-pip install torch torchvision flwr scikit-learn pandas paho-mqtt tqdm matplotlib seaborn
+pip install torch torchvision flwr scikit-learn pandas paho-mqtt tqdm matplotlib seaborn hyperopt
 ```
 
 If you prefer, generate and use an `environment.yml` from this environment snapshot.
+
+OBS: Emanuel added hperopt in the required dependencies.
 
 ---
 

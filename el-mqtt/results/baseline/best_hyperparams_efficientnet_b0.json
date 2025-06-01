@@ -1,0 +1,12 @@
+{
+    "model_name": "efficientnet_b0",
+    "best_params": {
+        "batch_size": 16,
+        "learning_rate": 0.004472537244608715,
+        "optimizer": "sgd"
+    },
+    "best_validation_loss": 0.37463440916434154,
+    "runtime_seconds": 4906,
+    "total_trials": 25,
+    "epochs_per_trial": 15
+}

@@ -26,7 +26,7 @@ args = parser.parse_args()
 
 # Device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-num_classes = 10
+
 
 # Transforms
 transform = transforms.Compose([
@@ -36,10 +36,18 @@ transform = transforms.Compose([
 ])
 
 # Datasets
-train_dataset = datasets.CIFAR10(root="./data", train=True, download=True, transform=transform)
-val_dataset = datasets.CIFAR10(root="./data", train=False, download=True, transform=transform)
+# train_dataset = datasets.CIFAR10(root="./data", train=True, download=True, transform=transform)
+# val_dataset = datasets.CIFAR10(root="./data", train=False, download=True, transform=transform)
+train_dataset = datasets.ImageFolder(root="./AIDER_split/train", transform=transform)
+val_dataset = datasets.ImageFolder(root="./AIDER_split/val", transform=transform)
+
+num_classes = train_dataset.classes.__len__()
+
 train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=args.batch_size)
+
+print("Classes identificadas no dataset de TREINO: ", train_dataset.classes)
+print("Classes identificadas no dataset de VALIDAÇÃO: ", val_dataset.classes)
 
 def get_model(name, num_classes):
     name = name.lower()

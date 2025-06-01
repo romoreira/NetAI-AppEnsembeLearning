@@ -3,3 +3,5 @@
 .gitignoreel-mqtt/data/cifar-10-python.tar.gz
 el-mqtt/data/cifar-10-python.tar.gz
 server_model_aggregated.pth
+AIDER/
+el-mqtt/AIDER_split
