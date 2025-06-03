@@ -29,17 +29,35 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 # Transforms
-transform = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-])
+#transform = transforms.Compose([
+#    transforms.Resize((224, 224)),
+#    transforms.ToTensor(),
+#    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+#])
 
 # Datasets
 # train_dataset = datasets.CIFAR10(root="./data", train=True, download=True, transform=transform)
 # val_dataset = datasets.CIFAR10(root="./data", train=False, download=True, transform=transform)
-train_dataset = datasets.ImageFolder(root="./AIDER_split/train", transform=transform)
-val_dataset = datasets.ImageFolder(root="./AIDER_split/val", transform=transform)
+#train_dataset = datasets.ImageFolder(root="./AIDER_split/train", transform=transform)
+#val_dataset = datasets.ImageFolder(root="./AIDER_split/val", transform=transform)
+
+train_transform = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomRotation(10),
+    transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+    transforms.ToTensor(),
+    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+])
+
+train_dataset = datasets.ImageFolder(root="./AIDER_split/train", transform=train_transform)
+val_transform = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+])
+val_dataset = datasets.ImageFolder(root="./AIDER_split/val", transform=val_transform)
+
 
 num_classes = train_dataset.classes.__len__()
 
@@ -52,42 +70,46 @@ print("Classes identificadas no dataset de VALIDAÇÃO: ", val_dataset.classes)
 def get_model(name, num_classes):
     name = name.lower()
     print(f"[MODEL] Carregando modelo: {name}")
+
+    #weights = 'IMAGENET1K_V1'
+    weights = 'IMAGENET1K_V1'
+
     if name == "resnet18":
-        model = models.resnet18(weights=None)
+        model = models.resnet18(weights=weights)
         model.fc = nn.Linear(model.fc.in_features, num_classes)
     elif name == "resnet34":
-        model = models.resnet34(weights=None)
+        model = models.resnet34(weights=weights)
         model.fc = nn.Linear(model.fc.in_features, num_classes)
     elif name == "resnet50":
-        model = models.resnet50(weights=None)
+        model = models.resnet50(weights=weights)
         model.fc = nn.Linear(model.fc.in_features, num_classes)
     elif name == "alexnet":
-        model = models.alexnet(weights=None)
+        model = models.alexnet(weights=weights)
         model.classifier[6] = nn.Linear(model.classifier[6].in_features, num_classes)
     elif name == "vgg16":
-        model = models.vgg16(weights=None)
+        model = models.vgg16(weights=weights)
         model.classifier[6] = nn.Linear(model.classifier[6].in_features, num_classes)
     elif name == "vgg19":
-        model = models.vgg19(weights=None)
+        model = models.vgg19(weights=weights)
         model.classifier[6] = nn.Linear(model.classifier[6].in_features, num_classes)
     elif name == "mobilenet_v2":
-        model = models.mobilenet_v2(weights=None)
+        model = models.mobilenet_v2(weights=weights)
         model.classifier[1] = nn.Linear(model.classifier[1].in_features, num_classes)
     elif name == "mobilenet_v3_small":
-        model = models.mobilenet_v3_small(weights=None)
+        model = models.mobilenet_v3_small(weights=weights)
         model.classifier[3] = nn.Linear(model.classifier[3].in_features, num_classes)
     elif name == "mobilenet_v3_large":
-        model = models.mobilenet_v3_large(weights=None)
+        model = models.mobilenet_v3_large(weights=weights)
         model.classifier[3] = nn.Linear(model.classifier[3].in_features, num_classes)
     elif name == "squeezenet":
-        model = models.squeezenet1_0(weights=None)
+        model = models.squeezenet1_0(weights=weights)
         model.classifier[1] = nn.Conv2d(512, num_classes, kernel_size=(1, 1), stride=(1, 1))
         model.num_classes = num_classes
     elif name == "densenet121":
-        model = models.densenet121(weights=None)
+        model = models.densenet121(weights=weights)
         model.classifier = nn.Linear(model.classifier.in_features, num_classes)
     elif name == "efficientnet_b0":
-        model = models.efficientnet_b0(weights=None)
+        model = models.efficientnet_b0(weights=weights)
         model.classifier[1] = nn.Linear(model.classifier[1].in_features, num_classes)
     else:
         raise ValueError(f"Modelo '{name}' não suportado.")
@@ -96,6 +118,8 @@ def get_model(name, num_classes):
 model = get_model(args.model_name, num_classes).to(device)
 
 # Otimizador
+parser.add_argument('--weight_decay', type=float, default=0.0)
+
 if args.optimizer.lower() == "adam":
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 elif args.optimizer.lower() == "sgd":
