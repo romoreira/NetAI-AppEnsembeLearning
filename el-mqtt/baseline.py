@@ -178,11 +178,11 @@ print(f"Validation Accuracy: {val_acc:.4f}")
 
 # Classification Report
 print("\nClassification Report:")
-print(classification_report(all_targets, all_preds))
+print(classification_report(all_targets, all_preds, digits=5))
 # Salvar classification report em arquivo txt
 report_path = f"results/baseline/classification_report_{args.model_name}.txt"
 with open(report_path, 'w') as f:
-    f.write(classification_report(all_targets, all_preds))
+    f.write(classification_report(all_targets, all_preds, digits=5))
 print(f"Classification report salvo em {report_path}")
 
 
