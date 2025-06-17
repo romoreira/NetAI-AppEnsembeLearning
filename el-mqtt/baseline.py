@@ -10,36 +10,21 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 from sklearn.metrics import confusion_matrix, classification_report, ConfusionMatrixDisplay
+import time
 
-# Salvar gráficos
 os.makedirs("results", exist_ok=True)
 os.makedirs("results/baseline", exist_ok=True)
 
-# Argumentos via CLI
 parser = argparse.ArgumentParser()
 parser.add_argument('--model_name', type=str, required=True)
 parser.add_argument('--optimizer', type=str, default='adam')
 parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--epochs', type=int, default=3)
 parser.add_argument('--batch_size', type=int, default=32)
+parser.add_argument('--weight_decay', type=float, default=0.0)
 args = parser.parse_args()
 
-# Device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
-# Transforms
-#transform = transforms.Compose([
-#    transforms.Resize((224, 224)),
-#    transforms.ToTensor(),
-#    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-#])
-
-# Datasets
-# train_dataset = datasets.CIFAR10(root="./data", train=True, download=True, transform=transform)
-# val_dataset = datasets.CIFAR10(root="./data", train=False, download=True, transform=transform)
-#train_dataset = datasets.ImageFolder(root="./AIDER_split/train", transform=transform)
-#val_dataset = datasets.ImageFolder(root="./AIDER_split/val", transform=transform)
 
 train_transform = transforms.Compose([
     transforms.Resize((224, 224)),
@@ -58,7 +43,6 @@ val_transform = transforms.Compose([
 ])
 val_dataset = datasets.ImageFolder(root="./AIDER_split/val", transform=val_transform)
 
-
 num_classes = train_dataset.classes.__len__()
 
 train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
@@ -70,8 +54,6 @@ print("Classes identificadas no dataset de VALIDAÇÃO: ", val_dataset.classes)
 def get_model(name, num_classes):
     name = name.lower()
     print(f"[MODEL] Carregando modelo: {name}")
-
-    #weights = 'IMAGENET1K_V1'
     weights = 'IMAGENET1K_V1'
 
     if name == "resnet18":
@@ -117,17 +99,15 @@ def get_model(name, num_classes):
 
 model = get_model(args.model_name, num_classes).to(device)
 
-# Otimizador
-parser.add_argument('--weight_decay', type=float, default=0.0)
-
 if args.optimizer.lower() == "adam":
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 elif args.optimizer.lower() == "sgd":
-    optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
+    optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.weight_decay)
 else:
     raise ValueError(f"Otimizador '{args.optimizer}' não suportado.")
 
-# Treinamento
+start_time = time.time()
+
 criterion = nn.CrossEntropyLoss()
 model.train()
 train_losses = []
@@ -156,7 +136,10 @@ for epoch in range(args.epochs):
     train_accuracies.append(acc)
     print(f"Epoch {epoch+1}, Loss: {avg_loss:.4f}, Accuracy: {acc:.4f}")
 
-# Avaliação
+model_path = f"results/baseline/{args.model_name}.pth"
+torch.save(model.state_dict(), model_path)
+print(f"Modelo salvo em {model_path}")
+
 model.eval()
 correct_val = 0
 total_val = 0
@@ -176,32 +159,40 @@ with torch.no_grad():
 val_acc = correct_val / total_val
 print(f"Validation Accuracy: {val_acc:.4f}")
 
-# Classification Report
-print("\nClassification Report:")
-print(classification_report(all_targets, all_preds, digits=5))
-# Salvar classification report em arquivo txt
+
+end_time = time.time()
+total_time = end_time - start_time
+time_message = f"\nTempo total de treino e validação: {total_time / 60:.2f} minutos ({total_time:.2f} segundos)\n" 
+print(time_message)
+
+print("Classification Report:")
+report = classification_report(all_targets, all_preds, digits=5, target_names=val_dataset.classes)
+print(report)
+
 report_path = f"results/baseline/classification_report_{args.model_name}.txt"
 with open(report_path, 'w') as f:
-    f.write(classification_report(all_targets, all_preds, digits=5))
+    f.write(report)
+    f.write(time_message)
 print(f"Classification report salvo em {report_path}")
 
-
-# Confusion Matrix
 cm = confusion_matrix(all_targets, all_preds)
-plt.figure(figsize=(10, 8))
-ConfusionMatrixDisplay(cm, display_labels=val_dataset.classes).plot(cmap=plt.cm.Blues)
+plt.figure(figsize=(12, 10))
+disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=val_dataset.classes)
+disp.plot(cmap=plt.cm.Blues, xticks_rotation='vertical')
 plt.title(f"Confusion Matrix - {args.model_name}")
+plt.tight_layout()
 plt.savefig(f"results/baseline/confusion_matrix_{args.model_name}.png")
 plt.close()
-
+print("Matriz de confusão salva.")
 
 
 plt.figure()
-plt.plot(train_losses, marker='o', label="Loss")
-plt.plot(train_accuracies, marker='x', label="Accuracy")
+plt.plot(range(1, args.epochs + 1), train_losses, marker='o', label="Loss")
+plt.plot(range(1, args.epochs + 1), train_accuracies, marker='x', label="Accuracy")
 plt.title(f"Training Metrics - {args.model_name}")
 plt.xlabel("Epoch")
 plt.ylabel("Value")
+plt.xticks(range(1, args.epochs + 1))
 plt.legend()
 plt.grid(True)
 fig_path = f"results/baseline/metrics_{args.model_name}.png"
