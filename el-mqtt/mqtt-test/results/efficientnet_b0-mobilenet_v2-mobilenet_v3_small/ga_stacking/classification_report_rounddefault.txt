@@ -1,0 +1,13 @@
+Classification Report - Round default
+
+              precision    recall  f1-score   support
+
+           0     0.9524    0.9524    0.9524        21
+           1     1.0000    1.0000    1.0000        21
+           2     1.0000    0.9048    0.9500        21
+           3     0.9831    0.9943    0.9887       176
+           4     1.0000    1.0000    1.0000        19
+
+    accuracy                         0.9845       258
+   macro avg     0.9871    0.9703    0.9782       258
+weighted avg     0.9846    0.9845    0.9843       258
