@@ -30,9 +30,6 @@ parser.add_argument('--combo_name', type=str, required=True, help='Identifier fo
 args = parser.parse_args()
 
 if args.ensemble_method == "baseline":
-    # open baseline.py as a subprocess
-    # consider this exemple of parameters and edecution
-    # python3 baseline.py --model_name alexnet --optimizer sgd --lr 0.001 --epochs 20 --batch_size 64
     print("[INFO] Executando baseline.py...")
     os.system(f"python3 baseline.py --model_name {args.model_name} --optimizer {args.optimizer} --lr {args.lr} --epochs {args.epochs} --batch_size {args.batch_size}")
     
@@ -49,7 +46,6 @@ print(f"[CONFIG] Broker: {MQTT_BROKER}, Porta: {MQTT_PORT}, Tópico: {MQTT_TOPIC
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"[INIT] Usando dispositivo: {device}")
 num_classes = 5
-
 
 train_transform = transforms.Compose([
     transforms.Resize((224, 224)),
