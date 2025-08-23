@@ -10,6 +10,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 from sklearn.metrics import confusion_matrix, classification_report, ConfusionMatrixDisplay
+from cycler import cycler
+import matplotlib as mpl
 import time
 
 os.makedirs("results", exist_ok=True)
@@ -168,33 +170,126 @@ print(time_message)
 print("Classification Report:")
 report = classification_report(all_targets, all_preds, digits=5, target_names=val_dataset.classes)
 print(report)
-
+# Salva o classification report como antes
 report_path = f"results/baseline/classification_report_{args.model_name}.txt"
+os.makedirs(os.path.dirname(report_path), exist_ok=True)
 with open(report_path, 'w') as f:
     f.write(report)
     f.write(time_message)
 print(f"Classification report salvo em {report_path}")
 
-cm = confusion_matrix(all_targets, all_preds)
-plt.figure(figsize=(12, 10))
-disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=val_dataset.classes)
-disp.plot(cmap=plt.cm.Blues, xticks_rotation='vertical')
-plt.title(f"Confusion Matrix - {args.model_name}")
-plt.tight_layout()
-plt.savefig(f"results/baseline/confusion_matrix_{args.model_name}.png")
-plt.close()
-print("Matriz de confusão salva.")
+# ===== Estética ACM-like + fonte 16 (se já tiver acima, pode remover este bloco) =====
+mpl.rcParams.update({
+    "font.size": 16,
+    "font.family": "serif",
+    "font.serif": ["Times New Roman", "Times", "Liberation Serif", "STIXGeneral", "TeX Gyre Termes"],
+    "axes.titlesize": 16,
+    "axes.labelsize": 16,
+    "xtick.labelsize": 14,
+    "ytick.labelsize": 14,
+    "legend.fontsize": 14,
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+    "axes.linewidth": 0.9,
+    "pdf.fonttype": 42,  # texto selecionável no PDF
+    "ps.fonttype": 42,
+})
 
+# ===== Confusion Matrix (maior, 2 colunas, PDF) =====
+labels = getattr(val_dataset, "classes", None)
+if labels is None:
+    # fallback: usa rótulos numéricos encontrados
+    classes = np.unique(np.concatenate([np.asarray(all_targets), np.asarray(all_preds)]))
+    labels = [str(c) for c in classes]
 
-plt.figure()
-plt.plot(range(1, args.epochs + 1), train_losses, marker='o', label="Loss")
-plt.plot(range(1, args.epochs + 1), train_accuracies, marker='x', label="Accuracy")
-plt.title(f"Training Metrics - {args.model_name}")
-plt.xlabel("Epoch")
-plt.ylabel("Value")
-plt.xticks(range(1, args.epochs + 1))
-plt.legend()
-plt.grid(True)
-fig_path = f"results/baseline/metrics_{args.model_name}.png"
-plt.savefig(fig_path)
-print(f"Gráfico salvo em {fig_path}")
+# Se seus targets são índices alinhados a 'labels', fixe a ordem explicitamente:
+label_indices = list(range(len(labels)))
+
+out_dir = "results/baseline"
+os.makedirs(out_dir, exist_ok=True)
+
+# --- Contagens absolutas ---
+cm_counts = confusion_matrix(all_targets, all_preds, labels=label_indices)
+
+fig_c, ax_c = plt.subplots(figsize=(6.9, 6.9), constrained_layout=True)  # ~2 colunas ACM
+disp_c = ConfusionMatrixDisplay(confusion_matrix=cm_counts, display_labels=labels)
+disp_c.plot(cmap="Greys", xticks_rotation=45, ax=ax_c, colorbar=False, values_format="d")
+
+# Título é geralmente na caption do paper; deixe comentado se quiser título na figura.
+# ax_c.set_title(f"Confusion Matrix (Counts) - {args.model_name}")
+
+ax_c.set_xlabel("Predicted label", labelpad=10)
+ax_c.set_ylabel("True label", labelpad=10)
+ax_c.tick_params(axis="x", which="both", pad=6)
+ax_c.tick_params(axis="y", which="both", pad=6)
+
+pdf_counts = os.path.join(out_dir, f"confusion_matrix_counts_{args.model_name}.pdf")
+fig_c.savefig(pdf_counts, bbox_inches="tight")
+plt.close(fig_c)
+
+# --- Normalizada por verdade (linhas somam 1) ---
+cm_norm = confusion_matrix(all_targets, all_preds, labels=label_indices, normalize="true")
+
+fig_n, ax_n = plt.subplots(figsize=(6.9, 6.9), constrained_layout=True)
+disp_n = ConfusionMatrixDisplay(confusion_matrix=cm_norm, display_labels=labels)
+disp_n.plot(cmap="Greys", xticks_rotation=45, ax=ax_n, colorbar=True, values_format=".2f")
+
+# ax_n.set_title(f"Confusion Matrix (Normalized) - {args.model_name}")
+ax_n.set_xlabel("Predicted label", labelpad=10)
+ax_n.set_ylabel("True label", labelpad=10)
+ax_n.tick_params(axis="x", which="both", pad=6)
+ax_n.tick_params(axis="y", which="both", pad=6)
+
+pdf_norm = os.path.join(out_dir, f"confusion_matrix_norm_{args.model_name}.pdf")
+fig_n.savefig(pdf_norm, bbox_inches="tight")
+plt.close(fig_n)
+
+print(f"Matrizes de confusão salvas em:\n - {pdf_counts}\n - {pdf_norm}")
+
+# Estética ACM-like + fonte 16
+mpl.rcParams.update({
+    "font.size": 16,
+    "font.family": "serif",
+    "font.serif": ["Times New Roman", "Times", "Liberation Serif", "STIXGeneral", "TeX Gyre Termes"],
+    "axes.titlesize": 16,
+    "axes.labelsize": 16,
+    "xtick.labelsize": 14,
+    "ytick.labelsize": 14,
+    "legend.fontsize": 14,
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+    "axes.linewidth": 0.9,
+    "axes.prop_cycle": cycler("color", ["0.0", "0.35"]),  # tons de cinza
+    "pdf.fonttype": 42,  # texto selecionável no PDF
+    "ps.fonttype": 42,
+})
+
+# Tamanho maior (≈ 2 colunas ACM)
+FIG_W, FIG_H = 6.9, 4.1  # ajuste a altura se quiser mais/menos espaço vertical
+fig, ax = plt.subplots(figsize=(FIG_W, FIG_H), constrained_layout=True)
+
+epochs = range(1, args.epochs + 1)
+ax.plot(epochs, train_losses, marker='o', markersize=5, linewidth=2.0, label="Loss")
+ax.plot(epochs, train_accuracies, marker='s', markersize=5, linewidth=2.0,
+        fillstyle='none', label="Accuracy")
+
+# Título geralmente vai na caption do paper; deixe descomentado se quiser:
+# ax.set_title(f"Training Metrics - {args.model_name}")
+
+ax.set_xlabel("Epoch", labelpad=8)
+ax.set_ylabel("Value", labelpad=8)
+ax.set_xticks(list(epochs))
+
+# Mais espaço: legenda acima, fora do eixo
+ax.legend(loc="upper center", bbox_to_anchor=(0.5, 1.15), ncol=2, frameon=False, handlelength=1.8)
+
+# Espaçamentos adicionais
+ax.tick_params(axis='both', which='major', pad=6)
+ax.margins(x=0.02, y=0.08)
+ax.grid(False)
+
+out_dir = "results/baseline"
+os.makedirs(out_dir, exist_ok=True)
+pdf_path = os.path.join(out_dir, f"metrics_{args.model_name}.pdf")
+fig.savefig(pdf_path, bbox_inches="tight", pad_inches=0.03)
+print(f"Gráfico em PDF salvo em {pdf_path}")

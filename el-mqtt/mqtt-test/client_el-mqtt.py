@@ -14,25 +14,23 @@ import matplotlib.pyplot as plt
 matplotlib.use('Agg')
 import os
 
-# Argumentos via CLI
+# Argumentos via CLI (mantidos o mais próximo possível)
 parser = argparse.ArgumentParser()
 parser.add_argument('--broker', type=str, default='localhost')
 parser.add_argument('--port', type=int, default=1883)
 parser.add_argument('--topic', type=str, default='#')
 parser.add_argument('--model_name', type=str, required=True)
-parser.add_argument('--optimizer', type=str, default='adam')
-parser.add_argument('--lr', type=float, default=1e-3)
-parser.add_argument('--epochs', type=int, default=3)
+parser.add_argument('--optimizer', type=str, default='adam')       # mantido (não usado)
+parser.add_argument('--lr', type=float, default=1e-3)              # mantido (não usado)
+parser.add_argument('--epochs', type=int, default=3)               # mantido (não usado)
 parser.add_argument('--batch_size', type=int, default=32)
 parser.add_argument('--client_id', type=int, required=True)
-parser.add_argument('--ensemble_method', type=str, required=True)
-parser.add_argument('--combo_name', type=str, required=True, help='Identifier for the model combination') # NOVO
+parser.add_argument('--ensemble_method', type=str, required=True)  # mantido (não usado)
+parser.add_argument('--combo_name', type=str, required=True, help='Identifier for the model combination') # mantido (não usado)
+parser.add_argument('--pth_path', type=str, required=True, help='Caminho do arquivo .pth com os pesos do modelo')  # NOVO
 args = parser.parse_args()
 
-if args.ensemble_method == "baseline":
-    print("[INFO] Executando baseline.py...")
-    os.system(f"python3 baseline.py --model_name {args.model_name} --optimizer {args.optimizer} --lr {args.lr} --epochs {args.epochs} --batch_size {args.batch_size}")
-    
+# NÃO executa baseline/treino — foco apenas em extrair probabilidades de um .pth
 
 # MQTT config
 MQTT_BROKER = args.broker
@@ -45,36 +43,26 @@ print(f"[CONFIG] Broker: {MQTT_BROKER}, Porta: {MQTT_PORT}, Tópico: {MQTT_TOPIC
 # Device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"[INIT] Usando dispositivo: {device}")
-num_classes = 5
 
-train_transform = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.RandomHorizontalFlip(),
-    transforms.RandomRotation(10),
-    transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-    transforms.ToTensor(),
-    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-])
-
-train_dataset = datasets.ImageFolder(root="../AIDER_split/train", transform=train_transform)
+# Somente validação/inferência
 val_transform = transforms.Compose([
     transforms.Resize((224, 224)),
     transforms.ToTensor(),
     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 ])
 val_dataset = datasets.ImageFolder(root="../AIDER_split/val", transform=val_transform)
-
-num_classes = train_dataset.classes.__len__()
-
-train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=args.batch_size)
+classes = list(val_dataset.classes)
+num_classes = len(classes)
+print(f"[DATA] Val: {len(val_dataset)} amostras | classes({num_classes}): {classes}")
 
 def get_model(name, num_classes):
     name = name.lower()
 
-    weights = 'IMAGENET1K_V1'
+    # Não precisamos de pesos do ImageNet; os pesos virão do .pth
+    weights = None
 
-    print(f"[MODEL] Carregando modelo: {name}")
+    print(f"[MODEL] Carregando arquitetura: {name}")
     if name == "resnet18":
         model = models.resnet18(weights=weights)
         model.fc = nn.Linear(model.fc.in_features, num_classes)
@@ -102,7 +90,7 @@ def get_model(name, num_classes):
     elif name == "mobilenet_v3_large":
         model = models.mobilenet_v3_large(weights=weights)
         model.classifier[3] = nn.Linear(model.classifier[3].in_features, num_classes)
-    elif name == "squeezenet":
+    elif name == "squeezenet" or name == "squeezenet1_0":
         model = models.squeezenet1_0(weights=weights)
         model.classifier[1] = nn.Conv2d(512, num_classes, kernel_size=(1, 1), stride=(1, 1))
         model.num_classes = num_classes
@@ -116,67 +104,46 @@ def get_model(name, num_classes):
         raise ValueError(f"Modelo '{name}' não suportado.")
     return model
 
+def _strip_module_prefix(state_dict):
+    if not any(k.startswith('module.') for k in state_dict.keys()):
+        return state_dict
+    return {k.replace('module.', '', 1): v for k, v in state_dict.items()}
+
+def load_checkpoint_any(model, pth_path, map_location, strict=False):
+    if not os.path.exists(pth_path):
+        raise FileNotFoundError(f"Arquivo não encontrado: {pth_path}")
+    ckpt = torch.load(pth_path, map_location=map_location)
+
+    if isinstance(ckpt, dict) and 'state_dict' in ckpt:
+        state = ckpt['state_dict']
+    elif isinstance(ckpt, dict) and 'model_state_dict' in ckpt:
+        state = ckpt['model_state_dict']
+    elif isinstance(ckpt, dict) and all(isinstance(v, torch.Tensor) for v in ckpt.values()):
+        state = ckpt
+    else:
+        try:
+            state = ckpt.state_dict()  # caso tenham salvo o modelo inteiro
+        except Exception as e:
+            raise RuntimeError(f"Formato de checkpoint não suportado: {type(ckpt)}") from e
+
+    state = _strip_module_prefix(state)
+    missing, unexpected = model.load_state_dict(state, strict=strict)
+    return missing, unexpected
+
 model = get_model(args.model_name, num_classes).to(device)
 
-# Otimizador
-print(f"[TRAIN] Inicializando otimizador: {args.optimizer}")
-if args.optimizer.lower() == "adam":
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-elif args.optimizer.lower() == "sgd":
-    optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
-else:
-    raise ValueError(f"Otimizador '{args.optimizer}' não suportado.")
+# Carrega pesos do .pth
+print(f"[LOAD] Carregando pesos de: {args.pth_path}")
+try:
+    missing, unexpected = load_checkpoint_any(model, args.pth_path, map_location=device, strict=False)
+    if missing or unexpected:
+        print(f"[WARN] load_state_dict(strict=False): missing={len(missing)}, unexpected={len(unexpected)}")
+        if missing:   print(f"       missing (até 10): {missing[:10]}")
+        if unexpected:print(f"       unexpected (até 10): {unexpected[:10]}")
+except Exception as e:
+    raise SystemExit(f"[ERROR] Falha ao carregar pesos: {e}")
 
-# Treinamento
-criterion = nn.CrossEntropyLoss()
-print("[TRAIN] Iniciando treinamento...")
-model.train()
-train_losses = []
-train_accuracies = []
-
-for epoch in range(args.epochs):
-    running_loss = 0.0
-    correct = 0
-    total = 0
-    for inputs, targets in tqdm(train_loader, desc=f"{args.client_id} - Epoch {epoch+1}"):
-        inputs, targets = inputs.to(device), targets.to(device)
-        optimizer.zero_grad()
-        outputs = model(inputs)
-        loss = criterion(outputs, targets)
-        loss.backward()
-        optimizer.step()
-
-        running_loss += loss.item()
-        _, predicted = torch.max(outputs, 1)
-        correct += (predicted == targets).sum().item()
-        total += targets.size(0)
-
-    avg_loss = running_loss / len(train_loader)
-    acc = correct / total
-    train_losses.append(avg_loss)
-    train_accuracies.append(acc)
-    print(f"[TRAIN] Epoch {epoch+1}, Loss: {avg_loss:.4f}, Accuracy: {acc:.4f}")
-
-print("[TRAIN] Treinamento concluído.")
-
-# Salvar gráficos
-os.makedirs("results", exist_ok=True)
-results_path = f"results/{args.combo_name}/{args.ensemble_method}"
-os.makedirs(results_path, exist_ok=True)
-
-plt.figure()
-plt.plot(train_losses, marker='o', label="Loss")
-plt.plot(train_accuracies, marker='x', label="Accuracy")
-plt.title(f"Training Metrics - Client {args.client_id} ({args.model_name})")
-plt.xlabel("Epoch")
-plt.ylabel("Value")
-plt.legend()
-plt.grid(True)
-fig_path = f"{results_path}/metrics_client{args.client_id}_{args.model_name}.png"
-plt.savefig(fig_path)
-print(f"[LOG] Gráfico salvo em {fig_path}")
-
-# Avaliação
+# Avaliação: extrai probabilidades
 print("[EVAL] Extraindo probabilidades do conjunto de validação...")
 model.eval()
 all_probs = []
@@ -193,13 +160,13 @@ probs = torch.cat(all_probs).tolist()
 labels = torch.cat(all_labels).tolist()
 print(f"[EVAL] Total de amostras avaliadas: {len(probs)}")
 
-# Publicação via MQTT
+# Publicação via MQTT (mesmo payload de antes)
 print(f"🚀 [MQTT] Conectando ao broker {MQTT_BROKER}:{MQTT_PORT}")
 client = mqtt.Client()
 client.connect(MQTT_BROKER, MQTT_PORT, 60)
 
 payload = json.dumps({"probs": probs, "labels": labels})
-print(f"📡 Enviando para tópico {MQTT_TOPIC} com round_id='default'")
+print(f"📡 Enviando para tópico {MQTT_TOPIC}")
 client.loop_start()
 info = client.publish(MQTT_TOPIC, payload, qos=2)
 print(f"📤 [DEBUG] Mensagem publicada. ID: {info.mid}")

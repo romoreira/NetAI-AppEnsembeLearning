@@ -1,0 +1,13 @@
+Combination: efficientnet_b0 + resnet34 + squeezenet1_0
+
+                    precision    recall  f1-score   support
+
+collapsed_building    0.97917   0.91262   0.94472       103
+              fire    1.00000   0.98095   0.99038       105
+     flooded_areas    0.98058   0.95283   0.96651       106
+            normal    0.98313   0.99544   0.98925       878
+  traffic_incident    0.92857   0.93814   0.93333        97
+
+          accuracy                        0.97983      1289
+         macro avg    0.97429   0.95600   0.96484      1289
+      weighted avg    0.97987   0.97983   0.97970      1289

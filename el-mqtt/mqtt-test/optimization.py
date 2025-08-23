@@ -1,17 +1,43 @@
-import numpy as np
-from sklearn.metrics import accuracy_score
-import matplotlib.pyplot as plt
-import matplotlib
-matplotlib.use('Agg')
-import random
 import os
+import random
+
+import numpy as np
+from sklearn.metrics import accuracy_score, classification_report
 from sklearn.linear_model import LogisticRegression
 from scipy.optimize import differential_evolution
-from sklearn.metrics import classification_report
 
+import matplotlib as mpl
+mpl.use('Agg')  # backend off-screen para ambientes sem display
+import matplotlib.pyplot as plt
+
+
+# =========================
+# Estilo ACM-like reutilizável
+# =========================
+def apply_acm_style():
+    mpl.rcParams.update({
+        "font.size": 16,
+        "font.family": "serif",
+        "font.serif": ["Times New Roman", "Times", "Liberation Serif", "STIXGeneral", "TeX Gyre Termes"],
+        "axes.titlesize": 16,
+        "axes.labelsize": 16,
+        "xtick.labelsize": 14,
+        "ytick.labelsize": 14,
+        "legend.fontsize": 14,
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+        "axes.linewidth": 0.9,
+        "pdf.fonttype": 42,  # texto selecionável no PDF
+        "ps.fonttype": 42,
+    })
+
+
+# =========================
+# PSO (na prática dif. evolution) para pesos
+# =========================
 def run_pso_optimization(probs_list, true_labels, num_particles=30, max_iter=100):
     """
-    Otimiza pesos usando Particle Swarm Optimization para combinar vetores de probabilidade.
+    Otimiza pesos usando Differential Evolution (apelidado aqui de PSO) para combinar vetores de probabilidade.
 
     Returns:
         np.ndarray: Pesos normalizados otimizados
@@ -30,23 +56,26 @@ def run_pso_optimization(probs_list, true_labels, num_particles=30, max_iter=100
 
     bounds = [(0, 1)] * num_clients
 
-    result = differential_evolution(loss, bounds, strategy='best1bin', maxiter=max_iter, popsize=num_particles, tol=1e-6, seed=42)
-    
+    result = differential_evolution(
+        loss,
+        bounds,
+        strategy='best1bin',
+        maxiter=max_iter,
+        popsize=num_particles,
+        tol=1e-6,
+        seed=42
+    )
     best_weights = result.x / np.sum(result.x)
     print(f"[PSO] Melhor acurácia encontrada: {-result.fun:.4f}")
     return best_weights
 
+
+# =========================
+# Híbrido GA + Stacking
+# =========================
 def run_hybrid_ensemble_ga_stacking(probs_list, true_labels, ga_weights):
     """
     Executa ensemble híbrido: primeiro combina os vetores via GA, depois aplica Stacking com Logistic Regression.
-    
-    Args:
-        probs_list (list of np.ndarray): Vetores de probabilidade dos modelos.
-        true_labels (np.ndarray): Rótulos verdadeiros.
-        ga_weights (np.ndarray): Pesos aprendidos pelo GA.
-        
-    Returns:
-        float: Acurácia final com ensemble híbrido.
     """
     # Etapa 1: combinação ponderada via GA
     combined_probs_ga = np.zeros_like(probs_list[0])
@@ -54,7 +83,6 @@ def run_hybrid_ensemble_ga_stacking(probs_list, true_labels, ga_weights):
         combined_probs_ga += ga_weights[i] * np.array(probs)
 
     # Etapa 2: usar o vetor combinado como entrada do stacking
-    # Cada amostra agora é um vetor de tamanho num_classes
     X_stacking = combined_probs_ga
     y_stacking = true_labels
 
@@ -69,7 +97,11 @@ def run_hybrid_ensemble_ga_stacking(probs_list, true_labels, ga_weights):
     print(f"[HÍBRIDO GA + STACKING] Acurácia final: {final_acc:.4f}")
     return final_acc, X_stacking, y_stacking
 
-def run_genetic_algorithm(probs_list, true_labels, population_size=40, generations=100, mutation_rate=0.3):
+
+# =========================
+# Algoritmo Genético para pesos + gráficos ACM
+# =========================
+def run_genetic_algorithm(probs_list, true_labels, args, population_size=40, generations=100, mutation_rate=0.3):
     """
     Otimiza pesos para combinação de vetores de probabilidade usando algoritmo genético com melhorias.
     """
@@ -133,47 +165,50 @@ def run_genetic_algorithm(probs_list, true_labels, population_size=40, generatio
 
     best_individual = max(population, key=fitness)
 
-    # Diretório de saída
-    out_dir = f"results/ga"
-    os.makedirs(out_dir, exist_ok=True)
+    # =========================
+    # Gráficos no padrão ACM (PDF)
+    # =========================
+    results_dir = f"results/{args.combo_name}/{args.ensemble_method}"
+    os.makedirs(results_dir, exist_ok=True)
 
-    # Plot: evolução da acurácia
-    plt.figure(figsize=(8, 5))
-    plt.plot(range(1, generations + 1), best_scores, marker='o')
-    plt.title("Evolução da Acurácia - Algoritmo Genético")
-    plt.xlabel("Geração")
-    plt.ylabel("Acurácia")
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig(f"{out_dir}/ga_accuracy_evolution.png")
-    plt.close()
+    apply_acm_style()
 
-    # Plot: pesos aprendidos
-    plt.figure(figsize=(8, 5))
-    plt.bar(range(num_clients), best_individual)
-    plt.title("Pesos aprendidos pelo GA")
-    plt.xlabel("Cliente")
-    plt.ylabel("Peso")
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig(f"{out_dir}/ga_weights_final.png")
-    plt.close()
+    # Evolução da acurácia
+    fig1, ax1 = plt.subplots(figsize=(6.9, 3.6), constrained_layout=True)  # 2 colunas
+    ax1.plot(range(1, generations + 1), best_scores, marker='o', markersize=4.5, linewidth=2.0)
+    # ax1.set_title("Evolução da Acurácia - Algoritmo Genético")  # use a caption no paper
+    ax1.set_xlabel("Geração", labelpad=8)
+    ax1.set_ylabel("Acurácia", labelpad=8)
+    ax1.tick_params(axis='both', which='major', pad=6)
+    fig1.savefig(os.path.join(results_dir, "ga_accuracy_evolution.pdf"), bbox_inches="tight")
+    plt.close(fig1)
+
+    # Pesos finais do GA
+    fig2, ax2 = plt.subplots(figsize=(6.9, 3.0), constrained_layout=True)  # 2 colunas
+    idx = np.arange(num_clients)
+    ax2.bar(idx, best_individual, width=0.8, edgecolor="black", linewidth=0.6, color="0.35")
+    # ax2.set_title("Pesos aprendidos pelo GA")  # use a caption no paper
+    ax2.set_xlabel("Cliente", labelpad=8)
+    ax2.set_ylabel("Peso", labelpad=8)
+    ax2.set_xticks(idx)
+    if num_clients > 12:
+        for tick in ax2.get_xticklabels():
+            tick.set_rotation(45)
+            tick.set_ha("right")
+    ax2.set_ylim(0, max(1e-12, best_individual.max()) * 1.10)
+    ax2.tick_params(axis='both', which='major', pad=6)
+    fig2.savefig(os.path.join(results_dir, "ga_weights_final.pdf"), bbox_inches="tight")
+    plt.close(fig2)
 
     return best_individual
 
+
+# =========================
+# Híbrido PSO + Stacking
+# =========================
 def run_hybrid_ensemble_pso_stacking(probs_list, true_labels, pso_weights):
     """
     Executa ensemble híbrido: primeiro combina os vetores via PSO, depois aplica Stacking com Logistic Regression.
-    
-    Args:
-        probs_list (list of np.ndarray): Vetores de probabilidade dos modelos.
-        true_labels (np.ndarray): Rótulos verdadeiros.
-        pso_weights (np.ndarray): Pesos aprendidos pelo PSO.
-        
-    Returns:
-        float: Acurácia final com ensemble híbrido.
-        np.ndarray: Matriz combinada (X).
-        np.ndarray: Vetor de rótulos (y).
     """
     # Etapa 1: combinação ponderada via PSO
     combined_probs_pso = np.zeros_like(probs_list[0])
@@ -195,7 +230,11 @@ def run_hybrid_ensemble_pso_stacking(probs_list, true_labels, pso_weights):
     print(f"[HÍBRIDO PSO + STACKING] Acurácia final: {final_acc:.4f}")
     return final_acc, X_stacking, y_stacking
 
-def evaluate_weighted_probs(probs_list, weights, true_labels, method):
+
+# =========================
+# Avaliação usando pesos (gera classification_report em TXT)
+# =========================
+def evaluate_weighted_probs(probs_list, weights, true_labels, args, method):
     """
     Combina vetores de probabilidade usando pesos e calcula a acurácia final.
     """
@@ -206,12 +245,13 @@ def evaluate_weighted_probs(probs_list, weights, true_labels, method):
     preds = np.argmax(combined, axis=1)
     acc = accuracy_score(true_labels, preds)
 
-    #Saving classification report
+    # Saving classification report (texto)
     report = classification_report(true_labels, preds, digits=4)
-    report_path = f"results/{method}/classification_report_round.txt"
+    out_dir = f"results/{args.combo_name}/{args.ensemble_method}"
+    os.makedirs(out_dir, exist_ok=True)
+    report_path = os.path.join(out_dir, "classification_report_round.txt")
     with open(report_path, "w") as f:
-        f.write(f"Classification Report\n\n")
-        f.write(report) 
-    
+        f.write("Classification Report\n\n")
+        f.write(report)
 
     return acc
