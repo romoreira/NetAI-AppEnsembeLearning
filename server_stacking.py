@@ -11,6 +11,9 @@ from sklearn.preprocessing import StandardScaler
 from torch.utils.data import Dataset
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib
+
+matplotlib.use('Agg')
 from typing import Dict
 from typing import Optional
 import argparse

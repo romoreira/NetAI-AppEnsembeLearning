@@ -1,11 +1,13 @@
-              precision    recall  f1-score   support
+                    precision    recall  f1-score   support
 
-           0       0.95      0.84      0.89       103
-           1       1.00      0.93      0.97       105
-           2       0.97      0.94      0.96       106
-           3       0.97      0.99      0.98       878
-           4       0.90      0.91      0.90        97
+collapsed_building    0.95745   0.87379   0.91371       103
+              fire    0.99020   0.96190   0.97585       105
+     flooded_areas    0.99020   0.95283   0.97115       106
+            normal    0.96567   0.99317   0.97923       878
+  traffic_incident    0.92045   0.83505   0.87568        97
 
-    accuracy                           0.97      1289
-   macro avg       0.96      0.92      0.94      1289
-weighted avg       0.97      0.97      0.96      1289
+          accuracy                        0.96587      1289
+         macro avg    0.96479   0.92335   0.94312      1289
+      weighted avg    0.96563   0.96587   0.96526      1289
+
+Tempo total de treino e validação: 13.74 minutos (824.44 segundos)

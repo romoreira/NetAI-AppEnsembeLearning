@@ -1,0 +1,13 @@
+Combination: mobilenet_v2 + squeezenet1_0
+
+                    precision    recall  f1-score   support
+
+collapsed_building    0.95699   0.86408   0.90816       103
+              fire    1.00000   0.97143   0.98551       105
+     flooded_areas    0.99020   0.95283   0.97115       106
+            normal    0.97000   0.99431   0.98200       878
+  traffic_incident    0.92391   0.87629   0.89947        97
+
+          accuracy                        0.96974      1289
+         macro avg    0.96822   0.93179   0.94926      1289
+      weighted avg    0.96960   0.96974   0.96928      1289

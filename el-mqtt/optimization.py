@@ -1,6 +1,8 @@
 import numpy as np
 from sklearn.metrics import accuracy_score
 import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')
 import random
 import os
 from sklearn.linear_model import LogisticRegression

@@ -1,0 +1,22 @@
+# docker-compose.yml
+# This file is compatible with both docker-compose and podman-compose.
+
+version: '3.8'
+
+services:
+  mosquitto:
+    # Use the same image as specified in the Kubernetes deployment
+    image: eclipse-mosquitto:2.0
+    container_name: mosquitto
+    restart: unless-stopped
+    ports:
+      # Map host port 1883 to container port 1883
+      - "1883:1883"
+    volumes:
+      # Mount a local configuration file into the container.
+      # You must create the ./mosquitto/config/mosquitto.conf file first.
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      # Mount local directories for data and logs for persistence
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+
