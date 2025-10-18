@@ -1,0 +1,13 @@
+Relatório de Classificação Global - Rodada 1
+
+                    precision    recall  f1-score   support
+
+collapsed_building    0.94949   0.91262   0.93069       309
+              fire    0.97143   0.97143   0.97143       315
+     flooded_areas    0.98058   0.95283   0.96651       318
+            normal    0.98750   0.98975   0.98862      2634
+  traffic_incident    0.91176   0.95876   0.93467       291
+
+          accuracy                        0.97673      3867
+         macro avg    0.96015   0.95708   0.95839      3867
+      weighted avg    0.97689   0.97673   0.97672      3867

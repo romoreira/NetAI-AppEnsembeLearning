@@ -1,0 +1,9 @@
+{
+  "round": 1,
+  "client_id": 1,
+  "model_name": "resnet34",
+  "bytes_down_params_fit": 85217332.0,
+  "bytes_up_params_fit": 85217332.0,
+  "bytes_down_params_eval": 85217332.0,
+  "bytes_up_metrics_eval": 7734.0
+}

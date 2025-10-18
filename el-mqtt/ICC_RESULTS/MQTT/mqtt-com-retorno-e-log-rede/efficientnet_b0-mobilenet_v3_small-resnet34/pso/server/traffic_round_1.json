@@ -1,0 +1,24 @@
+{
+  "round": 1,
+  "method": "pso",
+  "labels_count": 1289,
+  "num_classes": 5,
+  "totals": {
+    "bytes_rx_clients": 445018,
+    "bytes_tx_teacher": 140647
+  },
+  "per_client": [
+    {
+      "client": "client1",
+      "bytes_rx": 148649
+    },
+    {
+      "client": "client2",
+      "bytes_rx": 149231
+    },
+    {
+      "client": "client3",
+      "bytes_rx": 147138
+    }
+  ]
+}

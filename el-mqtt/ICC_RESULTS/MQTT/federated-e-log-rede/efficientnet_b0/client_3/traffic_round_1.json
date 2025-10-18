@@ -1,0 +1,9 @@
+{
+  "round": 1,
+  "client_id": 3,
+  "model_name": "efficientnet_b0",
+  "bytes_down_params_fit": 16224268.0,
+  "bytes_up_params_fit": 16224268.0,
+  "bytes_down_params_eval": 16224268.0,
+  "bytes_up_metrics_eval": 7734.0
+}

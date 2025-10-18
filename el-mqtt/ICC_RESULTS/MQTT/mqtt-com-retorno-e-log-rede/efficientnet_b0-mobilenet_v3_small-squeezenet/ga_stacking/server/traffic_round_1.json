@@ -1,0 +1,24 @@
+{
+  "round": 1,
+  "method": "ga_stacking",
+  "labels_count": 1289,
+  "num_classes": 5,
+  "totals": {
+    "bytes_rx_clients": 445390,
+    "bytes_tx_teacher": 133356
+  },
+  "per_client": [
+    {
+      "client": "client1",
+      "bytes_rx": 148649
+    },
+    {
+      "client": "client2",
+      "bytes_rx": 147138
+    },
+    {
+      "client": "client3",
+      "bytes_rx": 149603
+    }
+  ]
+}

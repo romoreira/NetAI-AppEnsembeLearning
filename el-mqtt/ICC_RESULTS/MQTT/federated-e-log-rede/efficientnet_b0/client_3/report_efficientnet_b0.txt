@@ -1,0 +1,11 @@
+                    precision    recall  f1-score   support
+
+collapsed_building    0.95146   0.95146   0.95146       103
+              fire    1.00000   0.99048   0.99522       105
+     flooded_areas    0.98058   0.95283   0.96651       106
+            normal    0.98638   0.98975   0.98806       878
+  traffic_incident    0.94898   0.95876   0.95385        97
+
+          accuracy                        0.98138      1289
+         macro avg    0.97348   0.96866   0.97102      1289
+      weighted avg    0.98141   0.98138   0.98137      1289

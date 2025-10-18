@@ -1,0 +1,48 @@
+{
+  "accuracy": 0.9689681923972071,
+  "report": {
+    "collapsed_building": {
+      "precision": 0.9587628865979382,
+      "recall": 0.9029126213592233,
+      "f1-score": 0.93,
+      "support": 103.0
+    },
+    "fire": {
+      "precision": 0.9807692307692307,
+      "recall": 0.9714285714285714,
+      "f1-score": 0.9760765550239234,
+      "support": 105.0
+    },
+    "flooded_areas": {
+      "precision": 0.9711538461538461,
+      "recall": 0.9528301886792453,
+      "f1-score": 0.9619047619047619,
+      "support": 106.0
+    },
+    "normal": {
+      "precision": 0.9731843575418995,
+      "recall": 0.9920273348519362,
+      "f1-score": 0.9825155104342922,
+      "support": 878.0
+    },
+    "traffic_incident": {
+      "precision": 0.9213483146067416,
+      "recall": 0.845360824742268,
+      "f1-score": 0.8817204301075269,
+      "support": 97.0
+    },
+    "accuracy": 0.9689681923972071,
+    "macro avg": {
+      "precision": 0.9610437271339312,
+      "recall": 0.9329119082122489,
+      "f1-score": 0.9464434514941009,
+      "support": 1289.0
+    },
+    "weighted avg": {
+      "precision": 0.9685820843144348,
+      "recall": 0.9689681923972071,
+      "f1-score": 0.9685146958271181,
+      "support": 1289.0
+    }
+  }
+}

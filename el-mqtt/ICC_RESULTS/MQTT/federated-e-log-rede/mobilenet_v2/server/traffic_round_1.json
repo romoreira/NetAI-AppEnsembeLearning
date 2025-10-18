@@ -1,0 +1,40 @@
+{
+  "round": 1,
+  "num_clients": 3,
+  "totals": {
+    "bytes_down_params_fit": 27173916.0,
+    "bytes_up_params_fit": 27173916.0,
+    "bytes_down_params_eval": 27173916.0,
+    "bytes_up_metrics_eval": 23202.0
+  },
+  "per_client": [
+    {
+      "client": "24aeb91dd47c4922b94733d133f9f00d",
+      "bytes_down_params_fit": 9057972.0,
+      "bytes_up_params_fit": 9057972.0,
+      "bytes_down_params_eval": 9057972.0,
+      "bytes_up_metrics_eval": 7734.0,
+      "num_examples": 1289,
+      "accuracy": 0.9720713731574864
+    },
+    {
+      "client": "79bb98b582564d378cbd647952f76371",
+      "bytes_down_params_fit": 9057972.0,
+      "bytes_up_params_fit": 9057972.0,
+      "bytes_down_params_eval": 9057972.0,
+      "bytes_up_metrics_eval": 7734.0,
+      "num_examples": 1289,
+      "accuracy": 0.9720713731574864
+    },
+    {
+      "client": "56ff0a6323eb47509bc9bafbde274052",
+      "bytes_down_params_fit": 9057972.0,
+      "bytes_up_params_fit": 9057972.0,
+      "bytes_down_params_eval": 9057972.0,
+      "bytes_up_metrics_eval": 7734.0,
+      "num_examples": 1289,
+      "accuracy": 0.9720713731574864
+    }
+  ],
+  "aggregated_accuracy": 0.9720713731574864
+}
