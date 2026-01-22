@@ -4,9 +4,10 @@ import os
 import signal
 from itertools import combinations
 
+
 def cleanup_processes():
     """Encontra e termina quaisquer processos de servidor ou cliente em execução."""
-    print("="*80)
+    print("=" * 80)
     print("🧹 Limpando quaisquer processos antigos em execução...")
     scripts_to_kill = ["server_el-mqtt.py", "client_el-mqtt.py"]
     for script_name in scripts_to_kill:
@@ -17,19 +18,21 @@ def cleanup_processes():
         except Exception as e:
             print(f"      Erro ao tentar encerrar {script_name}: {e}")
     print("✅ Limpeza concluída.")
-    print("="*80)
-    time.sleep(2) # Pequena pausa para garantir que os processos foram encerrados
+    print("=" * 80)
+    time.sleep(2)  # Pequena pausa para garantir que os processos foram encerrados
 
-def run_ensemble_experiment(ensemble_method, client_models, combo_id, combo_name, epochs=20):
+
+def run_ensemble_experiment(ensemble_method, client_models, combo_id, combo_name, epochs=20,
+                            rounds=3, kd_epochs=1, wait_timeout_sec=300):
     """
     Runs a complete ensemble federated learning experiment for a given method
     and a specific combination of client models.
     """
     model_names = [m['model_name'] for m in client_models]
-    print("="*80)
+    print("=" * 80)
     print(f"🚀 STARTING EXPERIMENT (Combo {combo_id}): {', '.join(model_names)}")
     print(f"➡️ Ensemble Method: {ensemble_method.upper()}")
-    print("="*80)
+    print("=" * 80)
 
     server_command = [
         "python", "server_el-mqtt.py",
@@ -60,7 +63,11 @@ def run_ensemble_experiment(ensemble_method, client_models, combo_id, combo_name
                 f"--client_id={i}",
                 f"--ensemble_method={ensemble_method}",
                 f"--combo_name={combo_name}",
-                f"--pth_path={model_params['pth_path']}"   # <<< NOVO: caminho do .pth correspondente
+                f"--pth_path={model_params['pth_path']}",
+                # === Novos parâmetros para o ciclo de distilação/KL ===
+                f"--rounds={rounds}",
+                f"--kd_epochs={kd_epochs}",
+                f"--wait_timeout_sec={wait_timeout_sec}",
             ]
             print(f"🤖 Starting Client {i} ({model_params['model_name']}): {' '.join(client_command)}")
             client_processes.append(subprocess.Popen(client_command))
@@ -80,6 +87,7 @@ def run_ensemble_experiment(ensemble_method, client_models, combo_id, combo_name
         print("   -> Waiting 2 seconds for resource cleanup...")
         time.sleep(2)
         print(f"🏁 EXPERIMENT FINISHED: Combo {combo_id} with {ensemble_method.upper()}\n")
+
 
 if __name__ == "__main__":
     # 1. Limpa processos antigos antes de começar
@@ -101,8 +109,13 @@ if __name__ == "__main__":
         "pso_stacking",
         "ga_stacking"
     ]
-    
+
     NUM_EPOCHS = 20
+
+    # Hiperparâmetros do ciclo KD/KL (ajuste aqui, sem tocar no resto)
+    ROUNDS = 1
+    KD_EPOCHS = 1
+    WAIT_TIMEOUT_SEC = 300
 
     model_combinations = list(combinations(TOP_MODELS, 3))
     print(f"Found {len(model_combinations)} model combinations to test.")
@@ -116,7 +129,10 @@ if __name__ == "__main__":
                 client_models=list(combo),
                 combo_id=i,
                 combo_name=combo_name,
-                epochs=NUM_EPOCHS
+                epochs=NUM_EPOCHS,
+                rounds=ROUNDS,
+                kd_epochs=KD_EPOCHS,
+                wait_timeout_sec=WAIT_TIMEOUT_SEC
             )
 
     print("🎉 All experiments for all model combinations have been completed successfully!")

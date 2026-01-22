@@ -1,169 +1,220 @@
+# --- SERVIDOR: mede tráfego MQTT (RX de clientes, TX do teacher) ---
 import paho.mqtt.client as mqtt
 import json
 import numpy as np
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import (
-    accuracy_score,
-    confusion_matrix,
-    classification_report,
-    ConfusionMatrixDisplay,
-)
-import argparse
-import time
-import os
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report, ConfusionMatrixDisplay
+import argparse, time, os
 import matplotlib as mpl
-mpl.use('Agg')  # backend off-screen para servidores/headless
+mpl.use('Agg')
 import matplotlib.pyplot as plt
 
-# === try/except para torchvision (labels do ImageFolder) ===
 try:
     from torchvision import datasets
-    from torchvision import transforms  # opcional; não é requerido para classes
 except Exception:
     datasets = None
-    transforms = None
 
-from optimization import (
+from optimizations import (
     run_genetic_algorithm,
-    evaluate_weighted_probs,
+    evaluate_weighted_probs,          # <- mantém, agora com round_id opcional
     run_hybrid_ensemble_ga_stacking,
     run_pso_optimization,
     run_hybrid_ensemble_pso_stacking
 )
 
-# ========= Estilo ACM-like reutilizável =========
 def apply_acm_style():
     mpl.rcParams.update({
         "font.size": 16,
         "font.family": "serif",
         "font.serif": ["Times New Roman", "Times", "Liberation Serif", "STIXGeneral", "TeX Gyre Termes"],
-        "axes.titlesize": 16,
-        "axes.labelsize": 16,
-        "xtick.labelsize": 14,
-        "ytick.labelsize": 14,
-        "legend.fontsize": 14,
-        "axes.spines.top": False,
-        "axes.spines.right": False,
-        "axes.linewidth": 0.9,
-        "pdf.fonttype": 42,  # texto selecionável no PDF
-        "ps.fonttype": 42,
+        "axes.titlesize": 16, "axes.labelsize": 16, "xtick.labelsize": 14, "ytick.labelsize": 14,
+        "legend.fontsize": 14, "axes.spines.top": False, "axes.spines.right": False,
+        "axes.linewidth": 0.9, "pdf.fonttype": 42, "ps.fonttype": 42,
     })
 
 def ensure_dir(path: str):
     os.makedirs(path, exist_ok=True)
 
-# ========= CLI =========
+# -------------------------------------------------
+# Args
+# -------------------------------------------------
 parser = argparse.ArgumentParser()
-parser.add_argument('--broker', type=str, default='localhost', help='Broker IP or hostname')
-parser.add_argument('--port', type=int, default=1883, help='Broker port')
-parser.add_argument('--topic', type=str, default='probs', help='MQTT topic to subscribe')
-parser.add_argument('--expected_clients', type=str, required=True, help='Number of expected clients')
-parser.add_argument('--ensemble_method', type=str, help='Ensemble method to use', required=True)
-parser.add_argument('--combo_name', type=str, required=True, help='Identifier for the model combination')
+parser.add_argument('--broker', type=str, default='localhost')
+parser.add_argument('--port', type=int, default=1883)
+parser.add_argument('--topic', type=str, default='probs')
+parser.add_argument('--expected_clients', type=str, required=True)
+parser.add_argument('--ensemble_method', type=str, required=True)
+parser.add_argument('--combo_name', type=str, required=True)
+# Suavização/EMA
+parser.add_argument('--teacher_temp', type=float, default=2.0)
+parser.add_argument('--teacher_eps', type=float, default=1e-4)
+parser.add_argument('--teacher_ema', type=float, default=0.9)
+# NEW: gating do teacher (aceitar só se não piorar muito)
+parser.add_argument('--teacher_gate', action='store_true',
+                    help='Ativa seleção best-so-far: rejeita teacher pior que o melhor por tol')
+parser.add_argument('--teacher_tol', type=float, default=0.002,
+                    help='Tolerância de queda de acurácia para aceitar novo teacher')
 args = parser.parse_args()
 
-# --- Caminho Base para Salvar Resultados ---
+print(f"[TEACHER] T={args.teacher_temp:.3f} | eps={args.teacher_eps:.1e} | EMA={args.teacher_ema:.2f} | gate={args.teacher_gate} tol={args.teacher_tol}")
+
 RESULTS_BASE_PATH = f"results/{args.combo_name}/{args.ensemble_method}"
 ensure_dir(RESULTS_BASE_PATH)
+SERVER_RESULTS_PATH = os.path.join(RESULTS_BASE_PATH, "server")
+ensure_dir(SERVER_RESULTS_PATH)
 
-# ===== Carregar train_dataset para obter nomes de classes =====
 train_dataset = None
 if datasets is not None:
     try:
-        # Você pode definir um transform se quiser; para obter .classes não é necessário
         train_dataset = datasets.ImageFolder(root="../AIDER_split/train")
         print(f"[DATA] classes do ImageFolder: {len(train_dataset.classes)} detectadas.")
     except Exception as e:
-        print(f"[WARN] Não foi possível carregar ImageFolder para labels: {e}")
+        print(f"[WARN] Não foi possível carregar ImageFolder: {e}")
 
 def get_class_names_from_train_dataset(n_expected: int):
-    """
-    Pega nomes de classes de train_dataset.classes se existir e tiver tamanho compatível.
-    Caso contrário, retorna None para acionar o fallback.
-    """
     if train_dataset is not None and hasattr(train_dataset, "classes"):
         names = list(train_dataset.classes)
-        # Se o número esperado bate com o do dataset, retornamos
         if len(names) == n_expected:
             return [str(x) for x in names]
-        # Se não bater, ainda podemos retornar (melhor que nada) — mas só se n_expected <= len(names)
         if n_expected <= len(names):
             return [str(x) for x in names[:n_expected]]
     return None
 
-def fallback_class_names_from_labels(y_true, y_pred):
-    """
-    Fallback robusto: constrói nomes a partir dos rótulos observados.
-    """
-    uniq = np.unique(np.concatenate([np.asarray(y_true), np.asarray(y_pred)]))
-    return [str(c) for c in uniq], uniq  # nomes, ordem única
-
-def map_labels_dense(y_true, y_pred, possible_labels=None):
-    """
-    Mapeia rótulos quaisquer para índices densos 0..K-1.
-    possible_labels (opcional) pode determinar a ordem/quantidade.
-    Retorna: y_true_idx, y_pred_idx, uniq_labels (na ordem usada)
-    """
-    if possible_labels is None:
-        uniq = np.unique(np.concatenate([np.asarray(y_true), np.asarray(y_pred)]))
+def soften_and_smooth_probs(probs_matrix: np.ndarray, T: float, eps: float) -> np.ndarray:
+    probs = np.asarray(probs_matrix, dtype=np.float64)
+    probs = np.clip(probs, 1e-12, 1.0)
+    if T is None or T <= 1.0 + 1e-9:
+        p_T = probs
     else:
-        uniq = np.asarray(possible_labels)
-    lab2idx = {lab: i for i, lab in enumerate(uniq)}
-    y_true_idx = np.array([lab2idx[lab] for lab in y_true])
-    y_pred_idx = np.array([lab2idx[lab] for lab in y_pred])
-    return y_true_idx, y_pred_idx, uniq
+        invT = 1.0 / T
+        p_T = np.power(probs, invT)
+        p_T /= np.sum(p_T, axis=1, keepdims=True)
+    if eps and eps > 0.0:
+        K = p_T.shape[1]
+        p_T = (1.0 - eps) * p_T + (eps / K)
+    p_T /= np.sum(p_T, axis=1, keepdims=True)
+    p_T = np.clip(p_T, 1e-8, 1.0)
+    p_T /= np.sum(p_T, axis=1, keepdims=True)
+    return p_T.astype(np.float32)
 
-def get_class_names_and_indices(n_classes: int, y_true=None, y_pred=None):
-    """
-    Política:
-    1) Tentar usar train_dataset.classes se existir e bater n_classes.
-    2) Caso contrário, se y_true/y_pred existirem, inferir nomes a partir deles.
-    3) Se nada disso, cair para ["Class 0", ..., "Class n-1"].
-    Retorna: class_names(list[str]), uniq_labels(np.ndarray com valores base), label_indices(range(K))
-    """
-    # 1) train_dataset
-    names = get_class_names_from_train_dataset(n_classes)
-    if names is not None:
-        return names, np.arange(n_classes), list(range(n_classes))
-
-    # 2) fallback de y_true/y_pred
-    if y_true is not None and y_pred is not None:
-        names_from_y, uniq = fallback_class_names_from_labels(y_true, y_pred)
-        if len(names_from_y) == n_classes:
-            return names_from_y, uniq, list(range(n_classes))
-        else:
-            # K é len(uniq); retornamos K nomes
-            return names_from_y, uniq, list(range(len(uniq)))
-
-    # 3) último recurso
-    return [f"Class {i}" for i in range(n_classes)], np.arange(n_classes), list(range(n_classes))
-
-# Configuração MQTT
+# MQTT
 MQTT_BROKER = args.broker
-MQTT_PORT = args.port
-MQTT_TOPIC = f"+/{args.topic}"
-
+MQTT_PORT   = args.port
+MQTT_TOPIC  = f"+/{args.topic}"
 print(f"[CONFIG] Broker: {MQTT_BROKER}, Porta: {MQTT_PORT}, Tópico: {MQTT_TOPIC}")
 expected_clients = {f"client{i+1}" for i in range(int(args.expected_clients))}
 print(f"[CONFIG] Esperando mensagens de: {expected_clients}")
 
-received_probs = {}
-round_accuracies = []
-round_durations = []
-message_counts = []
+mqtt_client = None
+MQTT_TEACHER_TOPIC = f"server/teacher/{args.combo_name}/{args.ensemble_method}"
 
-# ========= Helpers de plot =========
+received_probs   = {}
+round_accuracies = []
+round_durations  = []
+message_counts   = []
+
+# ---- NOVO: Telemetria de tráfego por rodada ----
+# Structure:
+#   traffic[round_id] = {
+#       "rx_clients": {"client1": bytes_total, ...},
+#       "tx_teacher": bytes_total
+#   }
+traffic = {}
+
+def _traffic_add_rx(round_id, client_id, nbytes):
+    r = traffic.setdefault(round_id, {"rx_clients": {}, "tx_teacher": 0})
+    r["rx_clients"][client_id] = r["rx_clients"].get(client_id, 0) + int(nbytes)
+
+def _traffic_set_tx(round_id, nbytes):
+    r = traffic.setdefault(round_id, {"rx_clients": {}, "tx_teacher": 0})
+    r["tx_teacher"] = int(nbytes)
+
+def _traffic_flush_round(round_id, method: str, labels_len: int, classes: int):
+    """Salva em JSON os totais por rodada no diretório do servidor."""
+    r = traffic.get(round_id, {"rx_clients": {}, "tx_teacher": 0})
+    per_client = [{"client": cid, "bytes_rx": int(v)} for cid, v in sorted(r["rx_clients"].items())]
+    totals = {
+        "bytes_rx_clients": int(sum(r["rx_clients"].values())),
+        "bytes_tx_teacher": int(r["tx_teacher"])
+    }
+    out = {
+        "round": int(round_id),
+        "method": method,
+        "labels_count": int(labels_len),
+        "num_classes": int(classes),
+        "totals": totals,
+        "per_client": per_client
+    }
+    path = os.path.join(SERVER_RESULTS_PATH, f"traffic_round_{round_id}.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(out, f, ensure_ascii=False, indent=2)
+    print(f"[TRAFFIC] Salvo {path}: totals={totals}")
+
+# Estado do teacher
+last_teacher = None         # para EMA
+best_teacher = None         # melhor teacher cheio (N,K)
+best_acc     = -1.0         # melhor acc observada
+
+def publish_teacher_probs(round_id, probs_matrix, labels, method):
+    if mqtt_client is None:
+        print("[WARN] mqtt_client ainda não inicializado; não foi possível publicar teacher_probs.")
+        return
+    payload_obj = {"round_id": round_id, "method": method,
+                   "labels": np.asarray(labels).tolist(),
+                   "probs":  np.asarray(probs_matrix, dtype=np.float32).tolist()}
+    payload_str = json.dumps(payload_obj, separators=(",", ":"))
+    payload_bytes = payload_str.encode("utf-8")
+    mqtt_client.publish(MQTT_TEACHER_TOPIC, payload_bytes, qos=1)
+    print(f"[PUBLISH] Teacher probs publicadas em '{MQTT_TEACHER_TOPIC}' (round {round_id}, method {method}).")
+    # mede TX
+    _traffic_set_tx(round_id, len(payload_bytes))
+    # salva arquivo de tráfego deste round (com método e metadados)
+    _traffic_flush_round(round_id, method, labels_len=len(labels), classes=probs_matrix.shape[1])
+
+def apply_teacher_ema(y_teacher: np.ndarray) -> np.ndarray:
+    global last_teacher
+    if args.teacher_ema > 0.0 and last_teacher is not None and last_teacher.shape == y_teacher.shape:
+        y_teacher = args.teacher_ema * last_teacher + (1.0 - args.teacher_ema) * y_teacher
+        y_teacher = y_teacher / y_teacher.sum(axis=1, keepdims=True)
+    last_teacher = y_teacher.copy()
+    return y_teacher
+
+def gate_teacher(y_teacher_new: np.ndarray, acc_new: float) -> np.ndarray:
+    """Seleciona teacher com base no melhor até agora e tolerância."""
+    global best_acc, best_teacher
+    if not args.teacher_gate:
+        if acc_new > best_acc:
+            best_acc = acc_new
+            best_teacher = y_teacher_new.copy()
+        return y_teacher_new
+
+    if best_acc < 0:
+        best_acc = acc_new
+        best_teacher = y_teacher_new.copy()
+        print(f"[GATE] Primeira referência: acc_best={best_acc:.4f}")
+        return y_teacher_new
+
+    if acc_new < best_acc - args.teacher_tol:
+        print(f"[GATE] Rejeitando teacher novo (acc={acc_new:.4f} < best={best_acc:.4f} - tol={args.teacher_tol:.4f}). Usando best-so-far.")
+        return best_teacher.copy()
+    else:
+        if acc_new > best_acc:
+            print(f"[GATE] Novo best teacher: {best_acc:.4f} → {acc_new:.4f}")
+            best_acc = acc_new
+            best_teacher = y_teacher_new.copy()
+        else:
+            print(f"[GATE] Aceito (dentro da tolerância). Best permanece {best_acc:.4f}.")
+        return y_teacher_new
+
+# ----------------- Métricas/plots utilitários (iguais) -----------------
 def plot_round_series_pdf(values, ylabel, filename, marker='o'):
     apply_acm_style()
     fig, ax = plt.subplots(figsize=(6.9, 3.2), constrained_layout=True)
     x = np.arange(1, len(values) + 1)
     ax.plot(x, values, marker=marker, markersize=4.5, linewidth=2.0)
-    # ax.set_title(...)  # títulos ficam na caption do paper
-    ax.set_xlabel("Round", labelpad=8)
-    ax.set_ylabel(ylabel, labelpad=8)
+    ax.set_xlabel("Round", labelpad=8); ax.set_ylabel(ylabel, labelpad=8)
     ax.tick_params(axis='both', which='major', pad=6)
-    fig.savefig(os.path.join(RESULTS_BASE_PATH, filename), bbox_inches="tight")
-    plt.close(fig)
+    fig.savefig(os.path.join(RESULTS_BASE_PATH, filename), bbox_inches="tight"); plt.close(fig)
 
 def plot_avg_probs_pdf(avg_probs, class_names, filename):
     apply_acm_style()
@@ -171,263 +222,154 @@ def plot_avg_probs_pdf(avg_probs, class_names, filename):
     fig, ax = plt.subplots(figsize=(6.9, 3.2), constrained_layout=True)
     idx = np.arange(n)
     ax.bar(idx, avg_probs, width=0.8, edgecolor="black", linewidth=0.6, color="0.35")
-    # ax.set_title(...)
-    ax.set_xlabel("Class", labelpad=8)
-    ax.set_ylabel("Average weighted probability", labelpad=8)
-    ax.set_xticks(idx)
-    if n > 12:
-        ax.set_xticklabels(class_names, rotation=45, ha="right")
-    else:
-        ax.set_xticklabels(class_names)
+    ax.set_xlabel("Class", labelpad=8); ax.set_ylabel("Average weighted probability", labelpad=8)
+    ax.set_xticks(idx); ax.set_xticklabels(class_names if n <= 12 else class_names, rotation=0 if n <= 12 else 45, ha="right")
     ax.tick_params(axis='both', which='major', pad=6)
-    fig.savefig(os.path.join(RESULTS_BASE_PATH, filename), bbox_inches="tight")
-    plt.close(fig)
+    fig.savefig(os.path.join(RESULTS_BASE_PATH, filename), bbox_inches="tight"); plt.close(fig)
 
-# ========= Agregadores =========
-def aggregate_with_GA(round_id):
-    print(f"[GA] Verificando se todos os clientes enviaram para a rodada {round_id}...")
-    clients_received = received_probs.get(round_id, {})
-    ready = all(len(clients_received.get(c, [])) >= 1 for c in expected_clients)
-    if not ready:
-        print(f"[GA] ⏳ Ainda aguardando mensagens...")
-        return
-
-    print(f"[GA] ✅ Todos os clientes da rodada {round_id} enviaram. Otimizando com GA...")
-    t_start = time.time()
-
-    probs_list = [np.array(clients_received[client][0]["probs"]) for client in sorted(expected_clients)]
-    labels = np.array(clients_received[sorted(expected_clients)[0]][0]["labels"])
-
-    best_weights = run_genetic_algorithm(probs_list, labels, args)
-    acc = evaluate_weighted_probs(probs_list, best_weights, labels, args, args.ensemble_method)
-    duration = time.time() - t_start
-    print(f"[GA - RESULT] - Time Elapsed: {duration:.3f}s - Accuracy with GA: {acc:.4f}")
-    # (sem plots adicionais nesta função)
-
-def aggregate_with_PSO(round_id):
-    print(f"[PSO] Verificando se todos os clientes enviaram para a rodada {round_id}...")
-    clients_received = received_probs.get(round_id, {})
-    ready = all(len(clients_received.get(c, [])) >= 1 for c in expected_clients)
-    if not ready:
-        print(f"[PSO] ⏳ Ainda aguardando mensagens...")
-        return
-
-    print(f"[PSO] ✅ Todos os clientes da rodada {round_id} enviaram. Otimizando com PSO...")
-    t_start = time.time()
-
-    probs_list = [np.array(clients_received[client][0]["probs"]) for client in sorted(expected_clients)]
-    y_stack = np.array(clients_received[sorted(expected_clients)[0]][0]["labels"])
-
-    best_weights = run_pso_optimization(probs_list, y_stack)
-    acc = evaluate_weighted_probs(probs_list, best_weights, y_stack, args, args.ensemble_method)
-    duration = time.time() - t_start
-    print(f"[PSO - RESULT] - Time Elapsed: {duration:.3f}s - Accuracy with PSO: {acc:.4f}")
-
-    round_accuracies.append(acc)
-    round_durations.append(duration)
-    message_counts.append({c: len(clients_received.get(c, [])) for c in expected_clients})
-
-    # --- Gráficos ACM em PDF ---
-    ensure_dir(RESULTS_BASE_PATH)
-    plot_round_series_pdf(round_accuracies, "Accuracy", "accuracy_per_round.pdf", marker='o')
-    plot_round_series_pdf(round_durations, "Aggregation time (s)", "aggregation_time.pdf", marker='x')
-
-    # Probabilidades médias ponderadas por classe
-    combined = np.zeros_like(probs_list[0])
-    for i, probs in enumerate(probs_list):
-        combined += best_weights[i] * np.array(probs)
-    avg_probs = np.mean(combined, axis=0)  # (n_classes,)
-
-    n_classes = avg_probs.shape[0]
-    class_names, _, _ = get_class_names_and_indices(n_classes)
-    plot_avg_probs_pdf(avg_probs, class_names, f"avg_probs_round{round_id}.pdf")
-
-    del received_probs[round_id]
-    print(f"[PSO] Dados da rodada {round_id} limpos.")
-
-# ========= Relatórios e Confusão =========
 def save_plots_and_reports(X_stack, y_stack, y_test, y_pred, y_proba, round_id):
-    """Salva relatório e gráficos no padrão ACM (PDF), usando labels do train_dataset quando possível."""
-    ensure_dir(RESULTS_BASE_PATH)
-    apply_acm_style()
-
-    # Relatório de Classificação (TXT)
+    ensure_dir(RESULTS_BASE_PATH); apply_acm_style()
     report = classification_report(y_test, y_pred, digits=4)
     with open(f"{RESULTS_BASE_PATH}/classification_report_round{round_id}.txt", "w") as f:
         f.write(f"Classification Report - Round {round_id}\n\n{report}")
 
-    # ===== Matriz de Confusão =====
-    # Descobrir K (número de classes observadas no conjunto de teste)
-    uniq = np.unique(np.concatenate([np.asarray(y_test), np.asarray(y_pred)]))
-    K = len(uniq)
-
-    # Tentar usar nomes do train_dataset; senão, nomes a partir dos rótulos observados
-    names_from_ds = get_class_names_from_train_dataset(K)
-    if names_from_ds is not None:
-        class_names = names_from_ds
-        # Supõe-se que y_test/y_pred estejam em 0..K-1; se não, mapear para denso
-        if (np.min(y_test) < 0) or (np.max(y_test) >= K) or (np.min(y_pred) < 0) or (np.max(y_pred) >= K):
-            y_test_idx, y_pred_idx, uniq_ord = map_labels_dense(y_test, y_pred)
-        else:
-            y_test_idx, y_pred_idx, uniq_ord = np.asarray(y_test), np.asarray(y_pred), np.arange(K)
-    else:
-        # Fallback consistente: nomes e ordem vindos de uniq
-        class_names, uniq_ord = fallback_class_names_from_labels(y_test, y_pred)
-        y_test_idx, y_pred_idx, uniq_ord = map_labels_dense(y_test, y_pred, possible_labels=uniq_ord)
-
-    label_indices = list(range(len(uniq_ord)))
-
-    # Contagens
-    cm_counts = confusion_matrix(y_test_idx, y_pred_idx, labels=label_indices)
-    fig_c, ax_c = plt.subplots(figsize=(6.9, 6.9), constrained_layout=True)
-    disp_c = ConfusionMatrixDisplay(confusion_matrix=cm_counts, display_labels=class_names)
-    disp_c.plot(cmap="Greys", xticks_rotation=45, ax=ax_c, colorbar=False, values_format="d")
-    ax_c.set_xlabel("Predicted label", labelpad=10)
-    ax_c.set_ylabel("True label", labelpad=10)
-    ax_c.tick_params(axis="x", which="both", pad=6)
-    ax_c.tick_params(axis="y", which="both", pad=6)
-    fig_c.savefig(f"{RESULTS_BASE_PATH}/confusion_matrix_counts_round{round_id}.pdf", bbox_inches="tight")
-    plt.close(fig_c)
-
-    # Normalizada por linha
-    cm_norm = confusion_matrix(y_test_idx, y_pred_idx, labels=label_indices, normalize="true")
-    fig_n, ax_n = plt.subplots(figsize=(6.9, 6.9), constrained_layout=True)
-    disp_n = ConfusionMatrixDisplay(confusion_matrix=cm_norm, display_labels=class_names)
-    disp_n.plot(cmap="Greys", xticks_rotation=45, ax=ax_n, colorbar=True, values_format=".2f")
-    ax_n.set_xlabel("Predicted label", labelpad=10)
-    ax_n.set_ylabel("True label", labelpad=10)
-    ax_n.tick_params(axis="x", which="both", pad=6)
-    ax_n.tick_params(axis="y", which="both", pad=6)
-    fig_n.savefig(f"{RESULTS_BASE_PATH}/confusion_matrix_norm_round{round_id}.pdf", bbox_inches="tight")
-    plt.close(fig_n)
-
-    # ===== Séries de rodada (PDF) =====
-    plot_round_series_pdf(round_accuracies, "Accuracy", "accuracy_per_round.pdf", marker='o')
-    plot_round_series_pdf(round_durations, "Aggregation time (s)", "aggregation_time.pdf", marker='x')
-
-    # ===== Distribuições de confiança (PDF) =====
-    if y_proba is not None:
-        confidences = np.max(y_proba, axis=1)
-        fig_h1, ax_h1 = plt.subplots(figsize=(6.9, 3.2), constrained_layout=True)
-        ax_h1.hist(confidences, bins=20, edgecolor="black")
-        ax_h1.set_xlabel("Predicted confidence", labelpad=8)
-        ax_h1.set_ylabel("Count", labelpad=8)
-        ax_h1.tick_params(axis='both', which='major', pad=6)
-        fig_h1.savefig(f"{RESULTS_BASE_PATH}/confidence_distribution_round{round_id}.pdf", bbox_inches="tight")
-        plt.close(fig_h1)
-
-        # Probabilidade da classe verdadeira (usa índices densos)
-        # Garantir mapeamento denso como acima
-        if (np.array_equal(np.unique(y_test), np.arange(K)) and
-            np.array_equal(np.unique(y_pred), np.arange(K))):
-            y_test_idx2 = np.asarray(y_test)
-        else:
-            y_test_idx2, _, _ = map_labels_dense(y_test, y_pred)
-        true_class_probs = y_proba[np.arange(len(y_test_idx2)), y_test_idx2]
-        fig_h2, ax_h2 = plt.subplots(figsize=(6.9, 3.2), constrained_layout=True)
-        ax_h2.hist(true_class_probs, bins=20, edgecolor="black")
-        ax_h2.set_xlabel("True-class probability", labelpad=8)
-        ax_h2.set_ylabel("Count", labelpad=8)
-        ax_h2.tick_params(axis='both', which='major', pad=6)
-        fig_h2.savefig(f"{RESULTS_BASE_PATH}/true_class_prob_distribution_round{round_id}.pdf", bbox_inches="tight")
-        plt.close(fig_h2)
-
+# ----------------- Agregadores -----------------
 def process_stacking_aggregation(round_id, X_stack, y_stack, start_time):
-    """Treina/prediz, atualiza métricas globais e salva gráficos/relatórios ACM."""
     from sklearn.model_selection import train_test_split
     X_train, X_test, y_train, y_test = train_test_split(
         X_stack, y_stack, test_size=0.2, random_state=42, stratify=y_stack
     )
-    meta_model = LogisticRegression(max_iter=1000)
-    meta_model.fit(X_train, y_train)
-    y_pred = meta_model.predict(X_test)
-    y_proba = meta_model.predict_proba(X_test)
+    meta = LogisticRegression(max_iter=1000)
+    meta.fit(X_train, y_train)
+    y_pred  = meta.predict(X_test)
+    y_proba = meta.predict_proba(X_test)
     acc = accuracy_score(y_test, y_pred)
-
-    round_accuracies.append(acc)
-    round_durations.append(time.time() - start_time)
-
+    # (poderia registrar tempo/duração por round aqui)
     save_plots_and_reports(X_stack, y_stack, y_test, y_pred, y_proba, round_id)
-    return acc
+    meta_full = LogisticRegression(max_iter=1000)
+    meta_full.fit(X_stack, y_stack)
+    y_proba_full = meta_full.predict_proba(X_stack)
+    return acc, y_proba, y_proba_full
 
 def aggregate_with_stacking(round_id):
     clients_received = received_probs.get(round_id, {})
     if not all(len(clients_received.get(c, [])) >= 1 for c in expected_clients):
         return
-
     print(f"[Stacking] ✅ Todos os clientes da rodada {round_id} enviaram. Realizando stacking...")
-    t_start = time.time()
-    probs_list = [np.array(clients_received[client][0]["probs"]) for client in sorted(expected_clients)]
-    y_stack = np.array(clients_received[sorted(expected_clients)[0]][0]["labels"])
-    X_stack = np.concatenate(probs_list, axis=1)
-
-    acc = process_stacking_aggregation(round_id, X_stack, y_stack, t_start)
+    t0 = time.time()
+    probs_list = [np.array(clients_received[c][0]["probs"]) for c in sorted(expected_clients)]
+    y_stack    = np.array(clients_received[sorted(expected_clients)[0]][0]["labels"])
+    X_stack    = np.concatenate(probs_list, axis=1)
+    acc, _, y_full = process_stacking_aggregation(round_id, X_stack, y_stack, t0)
     print(f"🎯 Acurácia rodada Stacking {round_id} (teste): {acc:.4f}")
+    y_teacher = soften_and_smooth_probs(y_full, T=args.teacher_temp, eps=args.teacher_eps)
+    y_teacher = gate_teacher(y_teacher, acc)
+    y_teacher = apply_teacher_ema(y_teacher)
+    publish_teacher_probs(round_id, y_teacher, y_stack, method="stacking")
+    del received_probs[round_id]
+
+def aggregate_with_GA(round_id):
+    print(f"[GA] Verificando rodada {round_id}...")
+    clients_received = received_probs.get(round_id, {})
+    if not all(len(clients_received.get(c, [])) >= 1 for c in expected_clients):
+        print(f"[GA] ⏳ Aguardando mensagens..."); return
+    probs_list = [np.array(clients_received[c][0]["probs"]) for c in sorted(expected_clients)]
+    labels     = np.array(clients_received[sorted(expected_clients)[0]][0]["labels"])
+    t0 = time.time()
+    best_weights = run_genetic_algorithm(probs_list, labels, args)
+    acc = evaluate_weighted_probs(probs_list, best_weights, labels, args, args.ensemble_method, round_id)
+    print(f"[GA - RESULT] Time={time.time()-t0:.3f}s | Acc={acc:.4f}")
+    combined = np.zeros_like(probs_list[0])
+    for i, p in enumerate(probs_list): combined += best_weights[i] * np.array(p)
+    combined /= np.maximum(combined.sum(axis=1, keepdims=True), 1e-12)
+    y_teacher = soften_and_smooth_probs(combined, T=args.teacher_temp, eps=args.teacher_eps)
+    y_teacher = gate_teacher(y_teacher, acc)
+    y_teacher = apply_teacher_ema(y_teacher)
+    publish_teacher_probs(round_id, y_teacher, labels, method="ga")
+    del received_probs[round_id]
+
+def aggregate_with_PSO(round_id):
+    print(f"[PSO] Verificando rodada {round_id}...")
+    clients_received = received_probs.get(round_id, {})
+    if not all(len(clients_received.get(c, [])) >= 1 for c in expected_clients):
+        print(f"[PSO] ⏳ Aguardando mensagens..."); return
+    probs_list = [np.array(clients_received[c][0]["probs"]) for c in sorted(expected_clients)]
+    y_stack    = np.array(clients_received[sorted(expected_clients)[0]][0]["labels"])
+    t0 = time.time()
+    best_weights = run_pso_optimization(probs_list, y_stack)
+    acc = evaluate_weighted_probs(probs_list, best_weights, y_stack, args, args.ensemble_method, round_id)
+    print(f"[PSO - RESULT] Time={time.time()-t0:.3f}s | Acc={acc:.4f}")
+    combined = np.zeros_like(probs_list[0])
+    for i, p in enumerate(probs_list): combined += best_weights[i] * np.array(p)
+    combined /= np.maximum(combined.sum(axis=1, keepdims=True), 1e-12)
+    y_teacher = soften_and_smooth_probs(combined, T=args.teacher_temp, eps=args.teacher_eps)
+    y_teacher = gate_teacher(y_teacher, acc)
+    y_teacher = apply_teacher_ema(y_teacher)
+    publish_teacher_probs(round_id, y_teacher, y_stack, method="pso")
     del received_probs[round_id]
 
 def aggregate_with_GA_and_Stacking(round_id):
     clients_received = received_probs.get(round_id, {})
-    if not all(len(clients_received.get(c, [])) >= 1 for c in expected_clients):
-        return
-
-    print(f"[GA+Stacking] ✅ Todos os clientes da rodada {round_id} enviaram. Realizando ensemble híbrido...")
-    t_start = time.time()
-    probs_list = [np.array(clients_received[client][0]["probs"]) for client in sorted(expected_clients)]
-    labels = np.array(clients_received[sorted(expected_clients)[0]][0]["labels"])
-
+    if not all(len(clients_received.get(c, [])) >= 1 for c in expected_clients): return
+    print(f"[GA+Stacking] ✅ Rodada {round_id}")
+    probs_list = [np.array(clients_received[c][0]["probs"]) for c in sorted(expected_clients)]
+    labels     = np.array(clients_received[sorted(expected_clients)[0]][0]["labels"])
+    t0 = time.time()
     ga_weights = run_genetic_algorithm(probs_list, labels, args)
     _, X_stack, y_stack = run_hybrid_ensemble_ga_stacking(probs_list, labels, ga_weights)
-
-    acc = process_stacking_aggregation(round_id, X_stack, y_stack, t_start)
-    print(f"🎯 Acurácia rodada GA+Stacking {round_id} (teste): {acc:.4f}")
+    acc, _, y_full = process_stacking_aggregation(round_id, X_stack, y_stack, t0)
+    print(f"🎯 Acurácia GA+Stacking {round_id}: {acc:.4f}")
+    y_teacher = soften_and_smooth_probs(y_full, T=args.teacher_temp, eps=args.teacher_eps)
+    y_teacher = gate_teacher(y_teacher, acc)
+    y_teacher = apply_teacher_ema(y_teacher)
+    publish_teacher_probs(round_id, y_teacher, y_stack, method="ga_stacking")
     del received_probs[round_id]
 
 def aggregate_with_PSO_and_Stacking(round_id):
     clients_received = received_probs.get(round_id, {})
-    if not all(len(clients_received.get(c, [])) >= 1 for c in expected_clients):
-        return
-
-    print(f"[PSO+Stacking] ✅ Todos os clientes da rodada {round_id} enviaram. Realizando ensemble híbrido...")
-    t_start = time.time()
-    probs_list = [np.array(clients_received[client][0]["probs"]) for client in sorted(expected_clients)]
-    labels = np.array(clients_received[sorted(expected_clients)[0]][0]["labels"])
-
+    if not all(len(clients_received.get(c, [])) >= 1 for c in expected_clients): return
+    print(f"[PSO+Stacking] ✅ Rodada {round_id}")
+    probs_list = [np.array(clients_received[c][0]["probs"]) for c in sorted(expected_clients)]
+    labels     = np.array(clients_received[sorted(expected_clients)[0]][0]["labels"])
+    t0 = time.time()
     pso_weights = run_pso_optimization(probs_list, labels)
     _, X_stack, y_stack = run_hybrid_ensemble_pso_stacking(probs_list, labels, pso_weights)
-
-    acc = process_stacking_aggregation(round_id, X_stack, y_stack, t_start)
-    print(f"🎯 Acurácia rodada PSO+Stacking {round_id} (teste): {acc:.4f}")
+    acc, _, y_full = process_stacking_aggregation(round_id, X_stack, y_stack, t0)
+    print(f"🎯 Acurácia PSO+Stacking {round_id}: {acc:.4f}")
+    y_teacher = soften_and_smooth_probs(y_full, T=args.teacher_temp, eps=args.teacher_eps)
+    y_teacher = gate_teacher(y_teacher, acc)
+    y_teacher = apply_teacher_ema(y_teacher)
+    publish_teacher_probs(round_id, y_teacher, y_stack, method="pso_stacking")
     del received_probs[round_id]
 
-# ========= MQTT =========
+# -------------------------------------------------
+# MQTT callbacks
+# -------------------------------------------------
 def on_message(client, userdata, msg):
     print(f"\n📩 Mensagem recebida de {msg.topic}")
     try:
-        payload = json.loads(msg.payload.decode())
+        raw = msg.payload
+        payload   = json.loads(raw.decode())
         client_id = msg.topic.split('/')[0]
-        round_id = payload.get("round_id", "default")
+        round_id  = payload.get("round_id", "default")
 
-        if round_id not in received_probs:
-            received_probs[round_id] = {}
-        # Armazena apenas probs/labels (class_names agora vem do train_dataset)
+        # Telemetria de RX por cliente/rodada
+        _traffic_add_rx(round_id, client_id, len(raw))
+
+        if round_id not in received_probs: received_probs[round_id] = {}
         received_probs[round_id][client_id] = [{"probs": payload["probs"], "labels": payload["labels"]}]
 
-        # Mapeamento de métodos para funções
-        aggregation_functions = {
-            "stacking": aggregate_with_stacking,
-            "ga": aggregate_with_GA,
-            "ga_stacking": aggregate_with_GA_and_Stacking,
-            "pso": aggregate_with_PSO,
+        fn = {
+            "stacking":     aggregate_with_stacking,
+            "ga":           aggregate_with_GA,
+            "ga_stacking":  aggregate_with_GA_and_Stacking,
+            "pso":          aggregate_with_PSO,
             "pso_stacking": aggregate_with_PSO_and_Stacking,
-        }
+        }.get(args.ensemble_method)
 
-        # Chama a função de agregação correspondente
-        if args.ensemble_method in aggregation_functions:
-            aggregation_functions[args.ensemble_method](round_id)
-        else:
-            print(f"❌ Método de ensemble desconhecido ou não implementado: {args.ensemble_method}.")
-
-    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        if fn: fn(round_id)
+        else:  print(f"❌ Método desconhecido: {args.ensemble_method}")
+    except Exception as e:
         print(f"❌ Erro ao processar mensagem: {e}")
 
 def on_connect(client, userdata, flags, rc):
@@ -435,21 +377,25 @@ def on_connect(client, userdata, flags, rc):
         print(f"🔗 Conectado ao broker, inscrevendo-se em {MQTT_TOPIC}")
         client.subscribe(MQTT_TOPIC)
     else:
-        print(f"❌ Falha na conexão com o broker (código: {rc})")
+        print(f"❌ Falha na conexão com o broker (rc={rc})")
 
 def main():
+    global mqtt_client, last_teacher, best_teacher, best_acc
     print(f"[INIT] Conectando ao broker {MQTT_BROKER}:{MQTT_PORT}...")
-    client = mqtt.Client()
-    client.on_connect = on_connect
-    client.on_message = on_message
-    client.connect(MQTT_BROKER, MQTT_PORT, 60)
-
+    c = mqtt.Client()
+    c.on_connect = on_connect
+    c.on_message = on_message
+    c.connect(MQTT_BROKER, MQTT_PORT, 60)
+    mqtt_client  = c
+    last_teacher = None
+    best_teacher = None
+    best_acc     = -1.0
     try:
         print("🚀 Servidor aguardando mensagens...")
-        client.loop_forever()
+        c.loop_forever()
     except KeyboardInterrupt:
         print("\n🛑 Encerrando servidor MQTT.")
-        client.disconnect()
+        c.disconnect()
 
 if __name__ == "__main__":
     main()

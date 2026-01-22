@@ -445,8 +445,8 @@ def load_data(dataset_id, client_id):
             ])
         }
 
-        trainset = ImageFolder("./dataset/production/train", transform=data_transforms['transform'])
-        testset = ImageFolder("./dataset/production/test", transform=data_transforms['transform'])
+        trainset = ImageFolder("el-mqtt/Dataset/production/train", transform=data_transforms['transform'])
+        testset = ImageFolder("el-mqtt/Dataset/production/test", transform=data_transforms['transform'])
         return DataLoader(trainset, batch_size=16, shuffle=True), DataLoader(testset)
     elif dataset_id == 2:
         OUTPUT = 3
@@ -462,8 +462,8 @@ def load_data(dataset_id, client_id):
             ])
         }
 
-        trainset = ImageFolder("./dataset/production/ufes_iid/train", transform=data_transforms['transform'])
-        testset = ImageFolder("./dataset/production/ufes_iid/test", transform=data_transforms['transform'])
+        trainset = ImageFolder("el-mqtt/Dataset/production/ufes_iid/train", transform=data_transforms['transform'])
+        testset = ImageFolder("el-mqtt/Dataset/production/ufes_iid/test", transform=data_transforms['transform'])
         return DataLoader(trainset, batch_size=16, shuffle=True), DataLoader(testset)
 
 
