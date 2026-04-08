@@ -1,136 +1,29 @@
-# 🧠 Distributed Ensemble Learning over MQTT with PyTorch
+# Asynchronous Probability Ensembling for Federated Disaster Detection
 
-This project implements a **distributed ensemble learning** architecture using **MQTT** as the communication protocol. Each client trains its own deep learning model on CIFAR-10 and publishes **class probabilities**, while a central **MQTT server** collects and aggregates them via **stacking (logistic regression)**.
+This repository implements the distributed ensemble learning framework described in our paper "Asynchronous Probability Ensembling for Federated Disaster Detection". The system enables heterogeneous CNN models to collaborate asynchronously through probability-level aggregation over MQTT, achieving competitive accuracy with orders-of-magnitude lower communication costs compared to traditional Federated Learning.
 
----
+## Overview
 
-## ⚙️ Overview
+Traditional Federated Learning approaches face significant challenges in disaster response scenarios: high communication overhead from exchanging model weights, rigid synchronization requirements unsuitable for intermittent connectivity, and limited support for heterogeneous model architectures.
 
-- Each **client** trains a separate model (`ResNet18`, `AlexNet`, etc.).
-- After training, it publishes softmax **probabilities and labels** to a unique MQTT topic.
-- The **server** listens on wildcard topics, waits for all expected clients, and performs **stacking** using logistic regression.
+Our approach addresses these limitations by exchanging lightweight class probability vectors instead of model parameters, supporting asynchronous client participation, and enabling diverse CNN architectures (EfficientNet, ResNet, MobileNet variants, SqueezeNet) to collaborate effectively.
 
----
+## Key Features
 
-## 📦 Environment (Conda)
+- **Probability-Level Aggregation**: Clients publish softmax probability vectors via MQTT rather than model weights
+- **Asynchronous Training**: No blocking on slow or disconnected clients
+- **Multiple Aggregation Strategies**: Logistic Regression Stacking, Genetic Algorithm (GA), Particle Swarm Optimization (PSO)
+- **Knowledge Distillation Feedback Loop**: Server broadcasts ensemble predictions back to clients for local refinement
+- **Communication Efficiency**: Reduces network traffic by 3+ orders of magnitude compared to federated parameter exchange
+- **Architectural Heterogeneity**: Different CNN backbones can participate in the same ensemble
 
-You can recreate the exact Python environment using:
+## System Architecture
 
-```bash
-conda create -n torch python=3.12
-conda activate torch
-pip install torch torchvision flwr scikit-learn pandas paho-mqtt tqdm matplotlib seaborn hyperopt
-```
+The framework operates in four phases:
 
-If you prefer, generate and use an `environment.yml` from this environment snapshot.
+1. **Local Training**: Clients train models independently using their own architectures
+2. **Probability Publishing**: Clients publish softmax vectors to MQTT broker
+3. **Server Aggregation**: Server collects probabilities and applies stacking/optimization methods
+4. **Feedback Distribution**: Server returns ensemble probabilities for knowledge distillation
 
-OBS: Emanuel added hperopt in the required dependencies.
-
----
-
-## 🗂 Project Structure
-
-```
-el-mqtt/
-├── client_el-mqtt.py      # MQTT client (training + publishing)
-├── server_el-mqtt.py      # MQTT server (subscribes + aggregates)
-├── run_el-mqtt.sh         # Script to launch everything
-└── data/                  # CIFAR-10 will be downloaded here
-```
-
----
-
-## 🚀 Running the System
-
-### 1. Start MQTT Broker
-
-Run Mosquitto locally:
-
-```bash
-docker run -it -p 1883:1883 eclipse-mosquitto
-```
-
-Or, use your existing broker (e.g., in Kubernetes). Use the correct broker IP in `--broker`.
-
----
-
-### 2. Launch Training & Aggregation
-
-```bash
-chmod +x run_el-mqtt.sh
-./run_el-mqtt.sh
-```
-
-This script will:
-
-- Kill any running server/client
-- Start `client1` (e.g. AlexNet) and `client2` (e.g. ResNet18)
-- Start the MQTT **server**
-- Display all logs live
-
----
-
-## 🧪 Test: Publish Manually
-
-To verify MQTT communication:
-
-```python
-# publish_test.py
-import paho.mqtt.client as mqtt
-broker = "your_broker_ip"
-client = mqtt.Client()
-client.connect(broker, 1883, 60)
-client.publish("client1/probs", "Hello MQTT!")
-client.disconnect()
-```
-
----
-
-## 🧠 Key Concepts
-
-- **MQTT Topics**: Each client publishes to `clientX/probs`.
-- **Server Subscription**: The server subscribes to `+/probs` to receive from any client.
-- **Aggregation**: Once all expected clients send data, stacking is done via `LogisticRegression`.
-- **Disconnection**: Clients disconnect after publishing. Server remains active using `loop_start()`.
-
----
-
-## 🔧 Manual Example
-
-```bash
-python3 client_el-mqtt.py \
-  --broker 10.96.221.15 \
-  --port 1883 \
-  --topic probs \
-  --model_name resnet18 \
-  --optimizer adam \
-  --lr 0.0005 \
-  --epochs 1 \
-  --batch_size 64 \
-  --client_id 1
-```
-
-And start the server:
-
-```bash
-python3 server_el-mqtt.py \
-  --broker 10.96.221.15 \
-  --port 1883 \
-  --topic probs \
-  --expected_clients 2
-```
-
----
-
-## ✅ Features
-
-- ✅ Lightweight messaging with MQTT
-- ✅ Supports any number of clients
-- ✅ Customizable models and hyperparameters
-- ✅ Server-side stacking (centralized ensemble)
-
----
-
-## 📄 License
-
-MIT © Rodrigo Moreira
+## Repository Structure
